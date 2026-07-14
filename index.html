@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>玩具盒 · Toybox</title>
+<style>
+  *{box-sizing:border-box}
+  :root{
+    --bg:#0f0e14; --bg2:#17151f; --ink:#f3f0fb; --mut:#a29fb5; --line:rgba(255,255,255,.08);
+  }
+  html,body{margin:0}
+  body{
+    background:
+      radial-gradient(1100px 600px at 50% -10%, rgba(122,108,255,.16), transparent 60%),
+      radial-gradient(900px 500px at 90% 110%, rgba(255,106,208,.10), transparent 60%),
+      var(--bg);
+    color:var(--ink); min-height:100vh;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,"Microsoft Yahei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1120px; margin:0 auto; padding:56px 22px 72px}
+  header{text-align:center; margin-bottom:40px}
+  .eyebrow{font-size:12px; letter-spacing:.32em; text-transform:uppercase; color:var(--mut); font-weight:700}
+  h1{font-size:clamp(38px,8vw,72px); margin:.14em 0 .1em; font-weight:900; letter-spacing:.02em;
+     background:linear-gradient(92deg,#ffd76a,#ff6ad0 42%,#7a6cff 78%,#4ad9ff);
+     -webkit-background-clip:text; background-clip:text; color:transparent; text-wrap:balance}
+  .sub{color:var(--mut); font-size:15px; line-height:1.7; max-width:34em; margin:0 auto; font-weight:500}
+  .chips{display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:18px}
+  .chip{font-size:13px; font-weight:700; color:var(--ink); background:rgba(255,255,255,.06);
+        border:1px solid var(--line); padding:6px 13px; border-radius:999px}
+  .chip b{color:#ffd76a}
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(148px,1fr)); gap:14px; margin-top:8px}
+  .card{position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center;
+        gap:6px; text-decoration:none; color:inherit; aspect-ratio:1/1; padding:14px;
+        background:linear-gradient(180deg, hsl(var(--h) 40% 15% / .55), hsl(var(--h) 30% 10% / .55)), var(--bg2);
+        border:1px solid hsl(var(--h) 60% 60% / .22); border-radius:18px; overflow:hidden;
+        transition:transform .16s ease, box-shadow .16s ease, border-color .16s ease}
+  .card::before{content:""; position:absolute; inset:0; background:radial-gradient(120px 90px at 50% 8%, hsl(var(--h) 90% 65% / .18), transparent 70%); opacity:.7; transition:opacity .16s}
+  .card:hover{transform:translateY(-5px); border-color:hsl(var(--h) 90% 68% / .7);
+              box-shadow:0 14px 34px hsl(var(--h) 80% 50% / .28), 0 0 0 1px hsl(var(--h) 90% 65% / .35) inset}
+  .card:hover::before{opacity:1}
+  .card:focus-visible{outline:2px solid hsl(var(--h) 90% 70%); outline-offset:3px}
+  .idx{position:absolute; top:9px; left:11px; font-size:11px; font-weight:800; color:hsl(var(--h) 70% 78% / .8); font-variant-numeric:tabular-nums; letter-spacing:.05em}
+  .emoji{font-size:44px; line-height:1; filter:drop-shadow(0 3px 8px rgba(0,0,0,.45)); transition:transform .16s ease}
+  .card:hover .emoji{transform:scale(1.14) rotate(-4deg)}
+  .cn{font-size:15px; font-weight:800; letter-spacing:.02em}
+  .en{font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.14em; color:hsl(var(--h) 45% 72% / .85)}
+  footer{text-align:center; color:var(--mut); font-size:13px; margin-top:44px; line-height:1.8}
+  footer .dot{opacity:.4; margin:0 8px}
+  @media (max-width:520px){ .grid{grid-template-columns:repeat(auto-fill,minmax(118px,1fr)); gap:11px} .emoji{font-size:38px} .cn{font-size:13.5px} }
+  @media (prefers-reduced-motion:reduce){ .card,.emoji{transition:none} }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="eyebrow">Toybox</div>
+      <h1>玩 具 盒</h1>
+      <p class="sub">46 个一眼就懂、点开就能玩的小玩具。<br>物理、绘画、氛围、小游戏，一个接一个搓出来的。</p>
+      <div class="chips">
+        <span class="chip"><b>46</b> 个玩具</span>
+        <span class="chip">单文件 · 零依赖</span>
+        <span class="chip">点开即玩</span>
+      </div>
+    </header>
+    <main class="grid">
+      <a class="card" href="t/jelly.html" style="--h:0">
+        <span class="idx">01</span>
+        <span class="emoji">🍮</span>
+        <span class="cn">果冻工厂</span>
+        <span class="en">Jelly</span>
+      </a>
+      <a class="card" href="t/kaleido.html" style="--h:41">
+        <span class="idx">02</span>
+        <span class="emoji">🔮</span>
+        <span class="cn">万花镜</span>
+        <span class="en">Kaleido</span>
+      </a>
+      <a class="card" href="t/doodle.html" style="--h:82">
+        <span class="idx">03</span>
+        <span class="emoji">🖍️</span>
+        <span class="cn">弹珠涂鸦</span>
+        <span class="en">Doodle</span>
+      </a>
+      <a class="card" href="t/bloom.html" style="--h:123">
+        <span class="idx">04</span>
+        <span class="emoji">🌷</span>
+        <span class="cn">种一朵</span>
+        <span class="en">Bloom</span>
+      </a>
+      <a class="card" href="t/fluid.html" style="--h:164">
+        <span class="idx">05</span>
+        <span class="emoji">🌫️</span>
+        <span class="cn">墨</span>
+        <span class="en">Fluid</span>
+      </a>
+      <a class="card" href="t/powder.html" style="--h:205">
+        <span class="idx">06</span>
+        <span class="emoji">⏳</span>
+        <span class="cn">落沙</span>
+        <span class="en">Powder</span>
+      </a>
+      <a class="card" href="t/harp.html" style="--h:246">
+        <span class="idx">07</span>
+        <span class="emoji">🎵</span>
+        <span class="cn">光弦</span>
+        <span class="en">Harp</span>
+      </a>
+      <a class="card" href="t/whack.html" style="--h:287">
+        <span class="idx">08</span>
+        <span class="emoji">🔨</span>
+        <span class="cn">打地鼠</span>
+        <span class="en">Whack</span>
+      </a>
+      <a class="card" href="t/fireworks.html" style="--h:328">
+        <span class="idx">09</span>
+        <span class="emoji">🎆</span>
+        <span class="cn">烟花</span>
+        <span class="en">Fireworks</span>
+      </a>
+      <a class="card" href="t/pop.html" style="--h:9">
+        <span class="idx">10</span>
+        <span class="emoji">🫧</span>
+        <span class="cn">戳泡泡</span>
+        <span class="en">Pop</span>
+      </a>
+      <a class="card" href="t/constellation.html" style="--h:50">
+        <span class="idx">11</span>
+        <span class="emoji">✨</span>
+        <span class="cn">星座</span>
+        <span class="en">Constellation</span>
+      </a>
+      <a class="card" href="t/slice.html" style="--h:91">
+        <span class="idx">12</span>
+        <span class="emoji">🍉</span>
+        <span class="cn">切切乐</span>
+        <span class="en">Slice</span>
+      </a>
+      <a class="card" href="t/ripple.html" style="--h:132">
+        <span class="idx">13</span>
+        <span class="emoji">💧</span>
+        <span class="cn">涟漪</span>
+        <span class="en">Ripple</span>
+      </a>
+      <a class="card" href="t/magnet.html" style="--h:173">
+        <span class="idx">14</span>
+        <span class="emoji">🧲</span>
+        <span class="cn">磁力铁屑</span>
+        <span class="en">Magnet</span>
+      </a>
+      <a class="card" href="t/chaos.html" style="--h:214">
+        <span class="idx">15</span>
+        <span class="emoji">🌀</span>
+        <span class="cn">混沌摆</span>
+        <span class="en">Chaos</span>
+      </a>
+      <a class="card" href="t/gears.html" style="--h:255">
+        <span class="idx">16</span>
+        <span class="emoji">⚙️</span>
+        <span class="cn">齿轮</span>
+        <span class="en">Gears</span>
+      </a>
+      <a class="card" href="t/rainwindow.html" style="--h:296">
+        <span class="idx">17</span>
+        <span class="emoji">🌧️</span>
+        <span class="cn">雨窗</span>
+        <span class="en">RainWindow</span>
+      </a>
+      <a class="card" href="t/2048.html" style="--h:337">
+        <span class="idx">18</span>
+        <span class="emoji">🔢</span>
+        <span class="cn">2048</span>
+        <span class="en"></span>
+      </a>
+      <a class="card" href="t/tiles.html" style="--h:18">
+        <span class="idx">19</span>
+        <span class="emoji">🎹</span>
+        <span class="cn">别踩白块</span>
+        <span class="en">Tiles</span>
+      </a>
+      <a class="card" href="t/dandelion.html" style="--h:59">
+        <span class="idx">20</span>
+        <span class="emoji">🌱</span>
+        <span class="cn">蒲公英</span>
+        <span class="en">Dandelion</span>
+      </a>
+      <a class="card" href="t/laser.html" style="--h:100">
+        <span class="idx">21</span>
+        <span class="emoji">🔦</span>
+        <span class="cn">光</span>
+        <span class="en">Laser</span>
+      </a>
+      <a class="card" href="t/dominoes.html" style="--h:141">
+        <span class="idx">22</span>
+        <span class="emoji">🁢</span>
+        <span class="cn">多米诺</span>
+        <span class="en">Dominoes</span>
+      </a>
+      <a class="card" href="t/particletext.html" style="--h:182">
+        <span class="idx">23</span>
+        <span class="emoji">✨</span>
+        <span class="cn">粒子字</span>
+        <span class="en">ParticleText</span>
+      </a>
+      <a class="card" href="t/hoops.html" style="--h:223">
+        <span class="idx">24</span>
+        <span class="emoji">🏀</span>
+        <span class="cn">投篮</span>
+        <span class="en">Hoops</span>
+      </a>
+      <a class="card" href="t/fireflies.html" style="--h:264">
+        <span class="idx">25</span>
+        <span class="emoji">🪰</span>
+        <span class="cn">萤火虫</span>
+        <span class="en">Fireflies</span>
+      </a>
+      <a class="card" href="t/memory.html" style="--h:305">
+        <span class="idx">26</span>
+        <span class="emoji">🃏</span>
+        <span class="cn">翻翻乐</span>
+        <span class="en">Memory</span>
+      </a>
+      <a class="card" href="t/aurora.html" style="--h:346">
+        <span class="idx">27</span>
+        <span class="emoji">🌌</span>
+        <span class="cn">极光</span>
+        <span class="en">Aurora</span>
+      </a>
+      <a class="card" href="t/wheel.html" style="--h:27">
+        <span class="idx">28</span>
+        <span class="emoji">🎡</span>
+        <span class="cn">大转盘</span>
+        <span class="en">Wheel</span>
+      </a>
+      <a class="card" href="t/jellyfish.html" style="--h:68">
+        <span class="idx">29</span>
+        <span class="emoji">🪼</span>
+        <span class="cn">水母</span>
+        <span class="en">Jellyfish</span>
+      </a>
+      <a class="card" href="t/pinball.html" style="--h:109">
+        <span class="idx">30</span>
+        <span class="emoji">🕹️</span>
+        <span class="cn">弹珠台</span>
+        <span class="en">Pinball</span>
+      </a>
+      <a class="card" href="t/snake.html" style="--h:150">
+        <span class="idx">31</span>
+        <span class="emoji">🐍</span>
+        <span class="cn">贪吃蛇</span>
+        <span class="en">Snake</span>
+      </a>
+      <a class="card" href="t/solar.html" style="--h:191">
+        <span class="idx">32</span>
+        <span class="emoji">🪐</span>
+        <span class="cn">太阳系</span>
+        <span class="en">Solar</span>
+      </a>
+      <a class="card" href="t/minesweeper.html" style="--h:232">
+        <span class="idx">33</span>
+        <span class="emoji">💣</span>
+        <span class="cn">扫雷</span>
+        <span class="en">Minesweeper</span>
+      </a>
+      <a class="card" href="t/radar.html" style="--h:273">
+        <span class="idx">34</span>
+        <span class="emoji">📡</span>
+        <span class="cn">雷达</span>
+        <span class="en">Radar</span>
+      </a>
+      <a class="card" href="t/paint.html" style="--h:314">
+        <span class="idx">35</span>
+        <span class="emoji">🎨</span>
+        <span class="cn">调色盘</span>
+        <span class="en">Paint</span>
+      </a>
+      <a class="card" href="t/ecg.html" style="--h:355">
+        <span class="idx">36</span>
+        <span class="emoji">💚</span>
+        <span class="cn">心电图</span>
+        <span class="en">ECG</span>
+      </a>
+      <a class="card" href="t/hop.html" style="--h:36">
+        <span class="idx">37</span>
+        <span class="emoji">🦘</span>
+        <span class="cn">跳一跳</span>
+        <span class="en">Hop</span>
+      </a>
+      <a class="card" href="t/campfire.html" style="--h:77">
+        <span class="idx">38</span>
+        <span class="emoji">🔥</span>
+        <span class="cn">篝火</span>
+        <span class="en">Campfire</span>
+      </a>
+      <a class="card" href="t/aquarium.html" style="--h:118">
+        <span class="idx">39</span>
+        <span class="emoji">🐠</span>
+        <span class="cn">鱼缸</span>
+        <span class="en">Aquarium</span>
+      </a>
+      <a class="card" href="t/snowglobe.html" style="--h:159">
+        <span class="idx">40</span>
+        <span class="emoji">❄️</span>
+        <span class="cn">雪花球</span>
+        <span class="en">SnowGlobe</span>
+      </a>
+      <a class="card" href="t/slots.html" style="--h:200">
+        <span class="idx">41</span>
+        <span class="emoji">🎰</span>
+        <span class="cn">老虎机</span>
+        <span class="en">Slots</span>
+      </a>
+      <a class="card" href="t/piano.html" style="--h:241">
+        <span class="idx">42</span>
+        <span class="emoji">🎹</span>
+        <span class="cn">钢琴</span>
+        <span class="en">Piano</span>
+      </a>
+      <a class="card" href="t/goldenegg.html" style="--h:282">
+        <span class="idx">43</span>
+        <span class="emoji">🥚</span>
+        <span class="cn">砸金蛋</span>
+        <span class="en">GoldenEgg</span>
+      </a>
+      <a class="card" href="t/dice.html" style="--h:323">
+        <span class="idx">44</span>
+        <span class="emoji">🎲</span>
+        <span class="cn">骰子</span>
+        <span class="en">Dice</span>
+      </a>
+      <a class="card" href="t/balloon.html" style="--h:4">
+        <span class="idx">45</span>
+        <span class="emoji">🎈</span>
+        <span class="cn">吹气球</span>
+        <span class="en">Balloon</span>
+      </a>
+      <a class="card" href="t/spirograph.html" style="--h:45">
+        <span class="idx">46</span>
+        <span class="emoji">🌀</span>
+        <span class="cn">万花尺</span>
+        <span class="en">Spirograph</span>
+      </a>
+    </main>
+    <footer>
+      每个都是一个独立的 HTML 文件，不联网、不装东西，浏览器打开就能玩。<br>
+      <span class="dot">·</span>随便点一个开始<span class="dot">·</span>
+    </footer>
+  </div>
+</body>
+</html>

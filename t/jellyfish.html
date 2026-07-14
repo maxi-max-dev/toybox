@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>水母 · Jellyfish</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#050a1e;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#cfe0ff;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:3px}
+  .title span{display:block;font-size:12px;opacity:.55;margin-top:3px;font-weight:600}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;
+    background:rgba(14,22,46,.5);border:1px solid rgba(120,170,255,.2);padding:8px 12px;border-radius:15px;backdrop-filter:blur(10px)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#cfe0ff;border:1px solid rgba(140,180,255,.25);background:rgba(255,255,255,.05);padding:8px 13px;border-radius:11px;cursor:pointer}
+  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>水母</b><span>手指放上去，引它们过来</span></div>
+<div class="hint" id="hint">🌊 手指放上去，像洋流引它们</div>
+<div class="bar"><button id="add">＋ 加一只</button></div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,jellies=[],bubbles=[];
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  bubbles=[]; for(let i=0;i<40;i++) bubbles.push({x:Math.random()*W,y:Math.random()*H,r:1+Math.random()*3,sp:10+Math.random()*20,ph:Math.random()*6.28});
+}
+window.addEventListener('resize',resize); resize();
+
+const HUES=[190,280,320,210,160];
+function addJelly(x,y){ jellies.push({x:x==null?60+Math.random()*(W-120):x, y:y==null?H*0.4+Math.random()*H*0.5:y,
+  s:26+Math.random()*26, ph:Math.random()*6.28, fr:1.1+Math.random()*0.5, vx:(Math.random()-.5)*10, vy:-10,
+  hue:HUES[(Math.random()*HUES.length)|0], nt:7+((Math.random()*4)|0), px:0 });
+  if(jellies.length>16)jellies.shift(); }
+function seed(){ jellies=[]; for(let i=0;i<5;i++) addJelly(); }
+resize(); seed();
+
+let pointer={x:-999,y:-999,on:false}, t=0;
+function step(dt){
+  for(const b of bubbles){ b.y-=b.sp*dt; b.x+=Math.sin(t+b.ph)*8*dt; if(b.y<-5){b.y=H+5;b.x=Math.random()*W;} }
+  for(const j of jellies){
+    j.px=j.x; j.ph+=j.fr*dt;
+    const contract=Math.max(0,-Math.cos(j.ph)); // strongest when bell contracts
+    j.vy += (-contract*140 + 34)*dt; // pulse thrust up, gentle sink between
+    j.vx += Math.sin(t*0.5+j.hue)*4*dt;
+    if(pointer.on){ const dx=pointer.x-j.x,dy=pointer.y-j.y,d=Math.hypot(dx,dy)+1; j.vx+=dx/d*60*dt; j.vy+=dy/d*60*dt; }
+    j.vx*=Math.pow(0.3,dt); j.vy*=Math.pow(0.5,dt);
+    j.x+=j.vx*dt; j.y+=j.vy*dt;
+    if(j.y<-j.s*2){ j.y=H+j.s*2; j.x=40+Math.random()*(W-80); }
+    if(j.y>H+j.s*3){ j.y=-j.s*2; }
+    if(j.x<-j.s){j.x=-j.s;j.vx=Math.abs(j.vx);} if(j.x>W+j.s){j.x=W+j.s;j.vx=-Math.abs(j.vx);}
+  }
+}
+function drawJelly(j){
+  const pulse=1+0.16*Math.sin(j.ph); const rx=j.s*(2-pulse), ry=j.s*pulse;
+  const drift=(j.x-j.px)*6; // lag for tentacles
+  ctx.save(); ctx.translate(j.x,j.y);
+  // glow halo
+  const halo=ctx.createRadialGradient(0,0,0,0,0,rx*2.4); halo.addColorStop(0,'hsla('+j.hue+',100%,70%,0.28)'); halo.addColorStop(1,'hsla('+j.hue+',100%,60%,0)');
+  ctx.fillStyle=halo; ctx.fillRect(-rx*2.4,-ry*2.4,rx*4.8,ry*4.8);
+  // tentacles
+  ctx.globalCompositeOperation='lighter';
+  for(let k=0;k<j.nt;k++){ const bx=(k/(j.nt-1)-0.5)*rx*1.4;
+    ctx.strokeStyle='hsla('+j.hue+',100%,72%,0.5)'; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(bx,ry*0.4);
+    const L=j.s*(2.6+ (k%2)*0.6); const segs=12;
+    for(let s=1;s<=segs;s++){ const yy=ry*0.4+L*s/segs; const sway=Math.sin(s*0.6+t*2.4+k+j.ph)*(s/segs)*rx*0.5 - drift*(s/segs); ctx.lineTo(bx+sway,yy); }
+    ctx.stroke();
+  }
+  // oral arms (frilly) center
+  for(let k=0;k<4;k++){ const bx=(k/3-0.5)*rx*0.5; ctx.strokeStyle='hsla('+j.hue+',100%,80%,0.55)'; ctx.lineWidth=2.4; ctx.beginPath();ctx.moveTo(bx,ry*0.3);
+    for(let s=1;s<=8;s++){ const yy=ry*0.3+j.s*1.6*s/8; const sway=Math.sin(s*0.8+t*2+k)*rx*0.3*(s/8)-drift*0.6*(s/8); ctx.lineTo(bx+sway,yy); } ctx.stroke(); }
+  ctx.globalCompositeOperation='source-over';
+  // bell
+  const g=ctx.createRadialGradient(0,-ry*0.3,ry*0.2,0,0,ry*1.1);
+  g.addColorStop(0,'hsla('+j.hue+',100%,85%,0.75)'); g.addColorStop(0.6,'hsla('+j.hue+',90%,62%,0.5)'); g.addColorStop(1,'hsla('+j.hue+',85%,55%,0.05)');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.ellipse(0,0,rx,ry,0,Math.PI,0);
+  // scalloped bottom
+  const lobes=6; for(let l=0;l<lobes;l++){ const xa=rx-2*rx*l/lobes, xb=rx-2*rx*(l+1)/lobes; ctx.quadraticCurveTo((xa+xb)/2, ry*0.5, xb, 0); }
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='hsla('+j.hue+',100%,88%,0.6)'; ctx.lineWidth=1.4; ctx.stroke();
+  // bright rim dots
+  ctx.fillStyle='hsla('+j.hue+',100%,90%,0.8)'; for(let l=0;l<lobes;l++){ const x=rx-2*rx*(l+0.5)/lobes; ctx.beginPath();ctx.arc(x,ry*0.1,1.8,0,6.28);ctx.fill(); }
+  ctx.restore();
+}
+function draw(){
+  const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#0a1236'); g.addColorStop(0.5,'#08122a'); g.addColorStop(1,'#040a18');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // light rays
+  ctx.globalCompositeOperation='lighter';
+  for(let i=0;i<4;i++){ const x=W*(0.2+0.2*i)+Math.sin(t*0.2+i)*30; const rg=ctx.createLinearGradient(x,0,x+60,H); rg.addColorStop(0,'rgba(80,140,255,0.06)');rg.addColorStop(1,'rgba(80,140,255,0)'); ctx.fillStyle=rg; ctx.beginPath();ctx.moveTo(x-30,0);ctx.lineTo(x+30,0);ctx.lineTo(x+90,H);ctx.lineTo(x-10,H);ctx.closePath();ctx.fill(); }
+  ctx.globalCompositeOperation='source-over';
+  // bubbles
+  for(const b of bubbles){ ctx.strokeStyle='rgba(150,200,255,.25)';ctx.lineWidth=1;ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,6.28);ctx.stroke(); }
+  for(const j of jellies) drawJelly(j);
+}
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.04); last=now; t+=dt; step(dt); draw(); requestAnimationFrame(frame); }
+
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);pointer.x=e.clientX;pointer.y=e.clientY;pointer.on=true;hideHint();});
+cv.addEventListener('pointermove',e=>{pointer.x=e.clientX;pointer.y=e.clientY;});
+cv.addEventListener('pointerup',()=>pointer.on=false);
+cv.addEventListener('pointercancel',()=>pointer.on=false);
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+document.getElementById('add').onclick=()=>addJelly(W*0.5,H*0.7);
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

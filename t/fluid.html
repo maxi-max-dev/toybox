@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>墨 · Fluid</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#04040a;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#e9e6ff;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0;background:#04040a}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none;mix-blend-mode:difference}
+  .title b{font-size:19px;font-weight:800;letter-spacing:4px}
+  .title span{display:block;font-size:12px;opacity:.7;margin-top:3px;font-weight:600;letter-spacing:1px}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;
+    display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:96vw;
+    background:rgba(18,16,34,.55);border:1px solid rgba(150,130,255,.22);
+    padding:8px 12px;border-radius:16px;backdrop-filter:blur(12px)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#e9e6ff;
+    border:1px solid rgba(160,140,255,.25);background:rgba(255,255,255,.05);
+    padding:8px 13px;border-radius:11px;cursor:pointer;transition:transform .08s,background .15s}
+  .bar button:hover{background:rgba(160,140,255,.2)}
+  .bar button:active{transform:translateY(1px)}
+  .bar button.on{background:linear-gradient(90deg,#6a5cff,#c05cff);border-color:transparent}
+  .hint{position:fixed;left:50%;bottom:66px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;
+    opacity:.55;pointer-events:none;transition:opacity .6s;white-space:nowrap;mix-blend-mode:difference}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>墨</b><span>手指划过水面，看烟墨翻卷</span></div>
+<div class="hint" id="hint">～ 在水里搅一搅 ～</div>
+<div class="bar">
+  <button id="auto" class="on">🌀 自动</button>
+  <button id="rainbow" class="on">🌈 幻彩</button>
+  <button id="clear">💧 清水</button>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1;
+// fluid grid
+let gw=0,gh=0,N=0,W2=0;
+let u,v,u0,v0,dens,dens0,hux,hux0; // hue stored as unit vectors (cos,sin) to advect across the 0/360 wrap
+let oc,octx,img;
+const IX=(i,j)=>i+W2*j;
+const ITER=10, DT=0.10, FADE=0.990, VFADE=0.995;
+
+function alloc(){
+  gw=104; gh=Math.max(40,Math.round(gw*H/Math.max(W,1)));
+  W2=gw+2; const H2=gh+2, S=W2*H2;
+  u=new Float32Array(S);v=new Float32Array(S);u0=new Float32Array(S);v0=new Float32Array(S);
+  dens=new Float32Array(S);dens0=new Float32Array(S);
+  hux=new Float32Array(S);hux0=new Float32Array(S); // cos(hue)
+  huy=new Float32Array(S);huy0=new Float32Array(S); // sin(hue)
+  oc=document.createElement('canvas'); oc.width=gw; oc.height=gh; octx=oc.getContext('2d');
+  img=octx.createImageData(gw,gh);
+}
+let huy,huy0;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  alloc();
+}
+window.addEventListener('resize',()=>{resize();}); resize();
+
+// hue lookup (full sat/val)
+const LUT=new Float32Array(360*3);
+for(let h=0;h<360;h++){ const [r,g,b]=hsv(h,1,1); LUT[h*3]=r;LUT[h*3+1]=g;LUT[h*3+2]=b; }
+function hsv(h,s,vv){h/=60;const c=vv*s,x=c*(1-Math.abs(h%2-1)),m=vv-c;let r,g,b;
+  if(h<1){r=c;g=x;b=0;}else if(h<2){r=x;g=c;b=0;}else if(h<3){r=0;g=c;b=x;}
+  else if(h<4){r=0;g=x;b=c;}else if(h<5){r=x;g=0;b=c;}else{r=c;g=0;b=x;}
+  return [(r+m)*255,(g+m)*255,(b+m)*255];}
+
+function set_bnd(b,x){
+  for(let i=1;i<=gw;i++){ x[IX(i,0)]=b===2?-x[IX(i,1)]:x[IX(i,1)]; x[IX(i,gh+1)]=b===2?-x[IX(i,gh)]:x[IX(i,gh)]; }
+  for(let j=1;j<=gh;j++){ x[IX(0,j)]=b===1?-x[IX(1,j)]:x[IX(1,j)]; x[IX(gw+1,j)]=b===1?-x[IX(gw,j)]:x[IX(gw,j)]; }
+  x[IX(0,0)]=.5*(x[IX(1,0)]+x[IX(0,1)]); x[IX(0,gh+1)]=.5*(x[IX(1,gh+1)]+x[IX(0,gh)]);
+  x[IX(gw+1,0)]=.5*(x[IX(gw,0)]+x[IX(gw+1,1)]); x[IX(gw+1,gh+1)]=.5*(x[IX(gw,gh+1)]+x[IX(gw+1,gh)]);
+}
+function lin_solve(b,x,x0,a,c){ const ic=1/c;
+  for(let k=0;k<ITER;k++){
+    for(let j=1;j<=gh;j++)for(let i=1;i<=gw;i++)
+      x[IX(i,j)]=(x0[IX(i,j)]+a*(x[IX(i-1,j)]+x[IX(i+1,j)]+x[IX(i,j-1)]+x[IX(i,j+1)]))*ic;
+    set_bnd(b,x);
+  }
+}
+function advect(b,d,d0,uu,vv,dt){
+  const dtx=dt*gw, dty=dt*gh;
+  for(let j=1;j<=gh;j++)for(let i=1;i<=gw;i++){
+    let x=i-dtx*uu[IX(i,j)], y=j-dty*vv[IX(i,j)];
+    if(x<0.5)x=0.5; if(x>gw+0.5)x=gw+0.5; const i0=x|0,i1=i0+1;
+    if(y<0.5)y=0.5; if(y>gh+0.5)y=gh+0.5; const j0=y|0,j1=j0+1;
+    const s1=x-i0,s0=1-s1,t1=y-j0,t0=1-t1;
+    d[IX(i,j)]=s0*(t0*d0[IX(i0,j0)]+t1*d0[IX(i0,j1)])+s1*(t0*d0[IX(i1,j0)]+t1*d0[IX(i1,j1)]);
+  }
+  set_bnd(b,d);
+}
+function project(uu,vv,p,div){
+  for(let j=1;j<=gh;j++)for(let i=1;i<=gw;i++){
+    div[IX(i,j)]=-0.5*((uu[IX(i+1,j)]-uu[IX(i-1,j)])/gw+(vv[IX(i,j+1)]-vv[IX(i,j-1)])/gh);
+    p[IX(i,j)]=0;
+  }
+  set_bnd(0,div); set_bnd(0,p); lin_solve(0,p,div,1,4);
+  for(let j=1;j<=gh;j++)for(let i=1;i<=gw;i++){
+    uu[IX(i,j)]-=0.5*gw*(p[IX(i+1,j)]-p[IX(i-1,j)]);
+    vv[IX(i,j)]-=0.5*gh*(p[IX(i,j+1)]-p[IX(i,j-1)]);
+  }
+  set_bnd(1,uu); set_bnd(2,vv);
+}
+function step(){
+  // velocity
+  project(u,v,u0,v0);
+  u0.set(u); v0.set(v);
+  advect(1,u,u0,u0,v0,DT); advect(2,v,v0,u0,v0,DT);
+  project(u,v,u0,v0);
+  // dye + hue (as unit vector) advect by velocity
+  dens0.set(dens); advect(0,dens,dens0,u,v,DT);
+  hux0.set(hux); advect(0,hux,hux0,u,v,DT);
+  huy0.set(huy); advect(0,huy,huy0,u,v,DT);
+  // fades
+  for(let k=0;k<dens.length;k++){ dens[k]*=FADE; u[k]*=VFADE; v[k]*=VFADE; }
+  // light smoothing to kill checkerboard speckle in the dye
+  dens0.set(dens);
+  for(let j=1;j<=gh;j++)for(let i=1;i<=gw;i++){
+    dens[IX(i,j)]=dens0[IX(i,j)]*0.8+(dens0[IX(i-1,j)]+dens0[IX(i+1,j)]+dens0[IX(i,j-1)]+dens0[IX(i,j+1)])*0.05;
+  }
+}
+
+function inject(px,py,dx,dy,h){
+  const gi=Math.max(1,Math.min(gw, Math.round(px/W*gw)));
+  const gj=Math.max(1,Math.min(gh, Math.round(py/H*gh)));
+  const ca=Math.cos(h*Math.PI/180), sa=Math.sin(h*Math.PI/180);
+  for(let oj=-1;oj<=1;oj++)for(let oi=-1;oi<=1;oi++){
+    const i=gi+oi,j=gj+oj; if(i<1||i>gw||j<1||j>gh)continue;
+    const w=(oi||oj)?0.5:1;
+    dens[IX(i,j)]+=110*w;
+    hux[IX(i,j)]=ca; huy[IX(i,j)]=sa;
+    u[IX(i,j)]+=dx*1.4*w; v[IX(i,j)]+=dy*1.4*w;
+  }
+}
+
+// ---- render ----
+function render(){
+  const data=img.data;
+  for(let j=1;j<=gh;j++)for(let i=1;i<=gw;i++){
+    const d=dens[IX(i,j)];
+    const b=d>0?1-Math.exp(-d*0.22):0; // brightness 0..1
+    let h=Math.atan2(huy[IX(i,j)],hux[IX(i,j)])*57.2958; if(h<0)h+=360;
+    const li=(h|0)*3;
+    const p=((i-1)+(j-1)*gw)*4;
+    data[p]=LUT[li]*b; data[p+1]=LUT[li+1]*b; data[p+2]=LUT[li+2]*b; data[p+3]=255;
+  }
+  octx.putImageData(img,0,0);
+  ctx.globalCompositeOperation='source-over';
+  ctx.fillStyle='#04040a'; ctx.fillRect(0,0,W,H);
+  ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+  ctx.drawImage(oc,0,0,gw,gh,0,0,W,H);
+}
+
+// ---- input ----
+let AUTO=true, RAINBOW=true, hue=0, t=0, lastInput=-9, px=null,py=null, down=false;
+function onDown(x,y){down=true;lastInput=t;px=x;py=y;hideHint();}
+function onMove(x,y){ if(!down)return; lastInput=t;
+  const dx=(x-px), dy=(y-py);
+  inject(x,y,dx,dy, RAINBOW?hue:(t*8%360));
+  px=x;py=y;
+}
+function onUp(){down=false;px=null;}
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);onDown(e.clientX,e.clientY);});
+cv.addEventListener('pointermove',e=>onMove(e.clientX,e.clientY));
+cv.addEventListener('pointerup',onUp);
+cv.addEventListener('pointercancel',onUp);
+
+let apx,apy;
+function autoDrive(){
+  const a=t*0.9, r=Math.min(W,H)*(0.18+0.16*Math.sin(t*0.5));
+  const x=W/2+Math.cos(a)*r*1.4, y=H/2+Math.sin(a*1.3)*r;
+  if(apx==null){apx=x;apy=y;}
+  inject(x,y,(x-apx),(y-apy), hue);
+  apx=x;apy=y;
+}
+
+let last=performance.now();
+function frame(now){
+  const dt=Math.min((now-last)/1000,0.05); last=now; t+=dt;
+  hue=(hue+dt*40)%360;
+  if(AUTO && (t-lastInput)>1.2 && !down) autoDrive(); else apx=null;
+  step(); render();
+  requestAnimationFrame(frame);
+}
+
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+document.getElementById('auto').onclick=e=>{AUTO=!AUTO;e.target.classList.toggle('on',AUTO);if(AUTO)lastInput=t-2;};
+document.getElementById('rainbow').onclick=e=>{RAINBOW=!RAINBOW;e.target.classList.toggle('on',RAINBOW);};
+document.getElementById('clear').onclick=()=>{dens.fill(0);u.fill(0);v.fill(0);};
+
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

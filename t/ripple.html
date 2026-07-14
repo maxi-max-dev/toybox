@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>涟漪 · Ripple</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#04141a;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#cfe8ee;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none;mix-blend-mode:screen}
+  .title b{font-size:19px;font-weight:800;letter-spacing:4px}
+  .title span{display:block;font-size:12px;opacity:.7;margin-top:3px;font-weight:600;letter-spacing:1px}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;
+    background:rgba(10,30,38,.5);border:1px solid rgba(120,200,220,.2);padding:8px 12px;border-radius:15px;backdrop-filter:blur(10px)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#cfe8ee;border:1px solid rgba(140,210,225,.25);
+    background:rgba(255,255,255,.05);padding:8px 13px;border-radius:11px;cursor:pointer}
+  .bar button.on{background:linear-gradient(90deg,#3fd0d8,#4d9bff);border-color:transparent;color:#04202a}
+  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;
+    opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap;mix-blend-mode:screen}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>涟漪</b><span>点一下水面，看它荡开</span></div>
+<div class="hint" id="hint">～ 戳一下水面 ～</div>
+<div class="bar">
+  <button id="rain" class="on">🌧️ 下雨</button>
+  <button id="calm">💧 静水</button>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,gw=0,gh=0,A,B,img,moonX=0;
+function resize(){
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  const sc=4; gw=Math.max(80,Math.floor(W/sc)); gh=Math.max(60,Math.floor(H/sc));
+  cv.width=gw; cv.height=gh; cv.style.width=W+'px'; cv.style.height=H+'px';
+  cv.style.imageRendering='auto';
+  A=new Float32Array(gw*gh); B=new Float32Array(gw*gh);
+  img=ctx.createImageData(gw,gh);
+  moonX=gw*0.72;
+}
+window.addEventListener('resize',resize); resize();
+
+// background (moonlit water) sampled with refraction offset
+function bgAt(px,py){
+  const v=py/gh;
+  let r=6+v*9, g=22+v*24, b=30+v*30;                 // deep teal gradient
+  const hg=Math.exp(-Math.pow((py-gh*0.10)/(gh*0.16),2))*0.6; // soft horizon glow
+  r+=hg*26; g+=hg*46; b+=hg*58;
+  const md=(px-moonX)/(gw*0.055);                     // smooth reflected moon column
+  const glow=Math.exp(-md*md);
+  r+=glow*175; g+=glow*190; b+=glow*168;
+  const l1=Math.exp(-Math.pow((px-gw*0.24)/(gw*0.04),2));   // a cool light reflection
+  r+=l1*24; g+=l1*70; b+=l1*110;
+  return [r,g,b];
+}
+
+function disturb(gx,gy,amp,rad){
+  rad=rad||2;
+  for(let oy=-rad;oy<=rad;oy++)for(let ox=-rad;ox<=rad;ox++){
+    const x=gx+ox,y=gy+oy; if(x<1||x>=gw-1||y<1||y>=gh-1)continue;
+    if(ox*ox+oy*oy<=rad*rad) A[y*gw+x]+=amp;
+  }
+}
+function step(){
+  for(let y=1;y<gh-1;y++)for(let x=1;x<gw-1;x++){
+    const i=y*gw+x;
+    let v=((A[i-1]+A[i+1]+A[i-gw]+A[i+gw])*0.5 - B[i]);
+    v*=0.982;
+    B[i]=v;
+  }
+  const t=A; A=B; B=t;
+}
+function render(){
+  const d=img.data;
+  for(let y=0;y<gh;y++)for(let x=0;x<gw;x++){
+    const i=y*gw+x;
+    let nx=0,ny=0;
+    if(x>0&&x<gw-1) nx=A[i-1]-A[i+1];
+    if(y>0&&y<gh-1) ny=A[i-gw]-A[i+gw];
+    // refraction sample (gentle)
+    let sx=x+nx*0.16, sy=y+ny*0.16;
+    if(sx<0)sx=0;else if(sx>gw-1)sx=gw-1; if(sy<0)sy=0;else if(sy>gh-1)sy=gh-1;
+    const c=bgAt(sx,sy);
+    // slope shading = ripple light/dark bands, plus a soft glint
+    let shade=(nx+ny)*0.5;
+    if(shade>60)shade=60; else if(shade<-60)shade=-60;
+    const glint=Math.max(0,-(nx+ny)-8)*0.6; const gl=glint>34?34:glint;
+    const p=i*4;
+    d[p]=Math.max(0,Math.min(255,c[0]+shade+gl));
+    d[p+1]=Math.max(0,Math.min(255,c[1]+shade+gl));
+    d[p+2]=Math.max(0,Math.min(255,c[2]+shade+gl*1.1));
+    d[p+3]=255;
+  }
+  ctx.putImageData(img,0,0);
+}
+
+let RAIN=true, t=0, rainNext=0;
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.05); last=now; t+=dt;
+  if(RAIN && t>rainNext){ rainNext=t+0.25+Math.random()*0.5; disturb((1+Math.random()*(gw-2))|0,(1+Math.random()*(gh-2))|0, 60+Math.random()*70, 1+((Math.random()*1.5)|0)); }
+  step(); render(); requestAnimationFrame(frame); }
+
+// ---- input ----
+let down=false;
+function at(x,y){ const gx=(x/W*gw)|0, gy=(y/H*gh)|0; disturb(gx,gy, 260, 2); hideHint(); }
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);down=true;at(e.clientX,e.clientY);});
+cv.addEventListener('pointermove',e=>{if(down)at(e.clientX,e.clientY);});
+cv.addEventListener('pointerup',()=>down=false);
+cv.addEventListener('pointercancel',()=>down=false);
+
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+document.getElementById('rain').onclick=e=>{RAIN=!RAIN;e.target.classList.toggle('on',RAIN);};
+document.getElementById('calm').onclick=()=>{A.fill(0);B.fill(0);};
+
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

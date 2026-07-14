@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>鱼缸 · Aquarium</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#bfe8f5;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#2f5a6b;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:1px;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+  .title span{display:block;font-size:12px;opacity:.65;margin-top:2px;font-weight:600}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;
+    background:rgba(255,255,255,.72);border:1px solid rgba(90,150,170,.2);padding:8px;border-radius:15px;backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(70,130,160,.18)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#2f5a6b;border:none;background:#fff;padding:9px 14px;border-radius:11px;cursor:pointer;box-shadow:0 2px 0 rgba(70,130,160,.16)}
+  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.65;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>鱼缸</b><span>点一下撒鱼食，看它们抢</span></div>
+<div class="hint" id="hint">🐟 点水里撒点鱼食</div>
+<div class="bar"><button id="add">＋ 加条鱼</button></div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,sandY=0,weeds=[],bubbles=[];
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  sandY=H*0.86;
+  weeds=[]; for(let i=0;i<10;i++) weeds.push({x:20+Math.random()*(W-40),h:40+Math.random()*120,ph:Math.random()*6.28,hue:120+Math.random()*40});
+  bubbles=[]; for(let i=0;i<26;i++) bubbles.push({x:Math.random()*W,y:Math.random()*H,r:1+Math.random()*3,sp:14+Math.random()*22,ph:Math.random()*6.28});
+}
+window.addEventListener('resize',resize); resize();
+
+const HUES=[20,45,180,200,330,280,140];
+let fish=[], food=[], t=0;
+function addFish(x,y){ const size=16+Math.random()*14; const a=Math.random()*6.28; fish.push({x:x==null?Math.random()*W:x,y:y==null?H*(0.2+Math.random()*0.5):y,
+  vx:Math.cos(a)*40,vy:Math.sin(a)*40,size,hue:HUES[(Math.random()*HUES.length)|0],wag:Math.random()*6.28,turn:0}); if(fish.length>24)fish.shift(); }
+function seed(){ fish=[]; for(let i=0;i<7;i++)addFish(); }
+resize(); seed();
+
+function step(dt){
+  for(const b of bubbles){ b.y-=b.sp*dt; b.x+=Math.sin(t+b.ph)*6*dt; if(b.y<-4){b.y=H+4;b.x=Math.random()*W;} }
+  for(let i=food.length-1;i>=0;i--){ const f=food[i]; f.vy=Math.min(50,f.vy+30*dt); f.y+=f.vy*dt; f.x+=Math.sin(t*2+f.ph)*8*dt; if(f.y>sandY-4){f.y=sandY-4;f.vy=0;} f.life-=dt*0.05; if(f.life<=0)food.splice(i,1); }
+  for(const s of fish){ s.wag+=dt*(6+Math.hypot(s.vx,s.vy)*0.04);
+    // find nearest food
+    let tgt=null,bd=1e9; for(const f of food){ const d=(f.x-s.x)**2+(f.y-s.y)**2; if(d<bd){bd=d;tgt=f;} }
+    let ax=0,ay=0;
+    if(tgt && bd<300*300){ const d=Math.sqrt(bd)+1; ax+=(tgt.x-s.x)/d*160; ay+=(tgt.y-s.y)/d*160; if(d<s.size){ food.splice(food.indexOf(tgt),1); } }
+    else { s.turn+=(Math.random()-.5)*dt*3; ax+=Math.cos(s.turn)*30; ay+=Math.sin(s.turn)*30; }
+    // wall avoidance
+    const m=40; if(s.x<m)ax+=80; if(s.x>W-m)ax-=80; if(s.y<H*0.12)ay+=80; if(s.y>sandY-m)ay-=90;
+    s.vx+=ax*dt; s.vy+=ay*dt; const sp=Math.hypot(s.vx,s.vy),mx=tgt?150:70; if(sp>mx){s.vx*=mx/sp;s.vy*=mx/sp;} s.vx*=Math.pow(0.6,dt);s.vy*=Math.pow(0.6,dt);
+    s.x+=s.vx*dt; s.y+=s.vy*dt;
+    s.x=Math.max(10,Math.min(W-10,s.x)); s.y=Math.max(H*0.1,Math.min(sandY-6,s.y));
+  }
+}
+function drawFish(s){
+  const ang=Math.atan2(s.vy,s.vx); const L=s.size, wag=Math.sin(s.wag)*0.5;
+  ctx.save(); ctx.translate(s.x,s.y); ctx.rotate(ang);
+  ctx.fillStyle='hsl('+s.hue+',80%,58%)';
+  // tail
+  ctx.save();ctx.translate(-L*0.7,0);ctx.rotate(wag);ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(-L*0.7,-L*0.5);ctx.lineTo(-L*0.55,0);ctx.lineTo(-L*0.7,L*0.5);ctx.closePath();ctx.fill();ctx.restore();
+  // body
+  ctx.beginPath();ctx.ellipse(0,0,L,L*0.6,0,0,6.28);ctx.fillStyle='hsl('+s.hue+',82%,60%)';ctx.fill();
+  ctx.fillStyle='hsla('+s.hue+',80%,75%,.6)';ctx.beginPath();ctx.ellipse(-L*0.1,-L*0.2,L*0.6,L*0.25,0,0,6.28);ctx.fill();
+  // fin
+  ctx.fillStyle='hsl('+s.hue+',75%,52%)';ctx.beginPath();ctx.moveTo(0,L*0.4);ctx.lineTo(-L*0.2,L*0.7+wag*4);ctx.lineTo(L*0.2,L*0.45);ctx.closePath();ctx.fill();
+  // eye (always upright-ish: draw on the facing side)
+  ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(L*0.5,-L*0.12,L*0.18,0,6.28);ctx.fill();
+  ctx.fillStyle='#223';ctx.beginPath();ctx.arc(L*0.56,-L*0.12,L*0.09,0,6.28);ctx.fill();
+  ctx.restore();
+}
+function draw(){
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#cdeef8');g.addColorStop(0.6,'#a9e0f2');g.addColorStop(1,'#7fcbe8');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  // light rays
+  ctx.globalCompositeOperation='lighter';
+  for(let i=0;i<3;i++){ const x=W*(0.25+0.25*i)+Math.sin(t*0.3+i)*20; const rg=ctx.createLinearGradient(x,0,x+40,H);rg.addColorStop(0,'rgba(255,255,255,.14)');rg.addColorStop(1,'rgba(255,255,255,0)');ctx.fillStyle=rg;ctx.beginPath();ctx.moveTo(x-20,0);ctx.lineTo(x+20,0);ctx.lineTo(x+70,H);ctx.lineTo(x-10,H);ctx.closePath();ctx.fill(); }
+  ctx.globalCompositeOperation='source-over';
+  // sand
+  ctx.fillStyle='#e8dcaf';ctx.beginPath();ctx.moveTo(0,sandY+10);ctx.quadraticCurveTo(W/2,sandY-8,W,sandY+10);ctx.lineTo(W,H);ctx.lineTo(0,H);ctx.closePath();ctx.fill();
+  // weeds
+  for(const w of weeds){ ctx.strokeStyle='hsl('+w.hue+',55%,42%)';ctx.lineWidth=6;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(w.x,sandY); let sway=Math.sin(t*1.2+w.ph)*14;
+    ctx.quadraticCurveTo(w.x+sway*0.5,sandY-w.h*0.5,w.x+sway,sandY-w.h);ctx.stroke(); }
+  // food
+  for(const f of food){ ctx.fillStyle='rgba(150,100,50,'+Math.min(1,f.life)+')';ctx.beginPath();ctx.arc(f.x,f.y,2.4,0,6.28);ctx.fill(); }
+  // fish
+  for(const s of fish) drawFish(s);
+  // bubbles
+  for(const b of bubbles){ ctx.strokeStyle='rgba(255,255,255,.5)';ctx.lineWidth=1;ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,6.28);ctx.stroke(); }
+}
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.04); last=now; t+=dt; step(dt); draw(); requestAnimationFrame(frame); }
+
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId); for(let i=0;i<6;i++)food.push({x:e.clientX+(Math.random()-.5)*30,y:e.clientY-20+Math.random()*10,vy:0,ph:Math.random()*6.28,life:1}); hideHint();});
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+document.getElementById('add').onclick=()=>addFish(W*0.5,H*0.4);
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

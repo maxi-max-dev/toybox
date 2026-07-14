@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>果冻工厂 · Jelly</title>
+<style>
+  :root{
+    --ink:#4a3b53;
+    --panel:rgba(255,255,255,.72);
+    --panel-brd:rgba(120,90,140,.18);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:var(--ink);background:#ffeaf0;touch-action:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:16px;left:18px;z-index:5;pointer-events:none;user-select:none}
+  .title b{font-size:20px;font-weight:800;letter-spacing:.5px;
+    text-shadow:0 1px 0 rgba(255,255,255,.6)}
+  .title span{display:block;font-size:12px;opacity:.62;margin-top:2px;font-weight:600}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:5;
+    display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:96vw;
+    background:var(--panel);border:1px solid var(--panel-brd);
+    padding:8px;border-radius:18px;backdrop-filter:blur(10px);
+    box-shadow:0 8px 30px rgba(150,110,160,.22)}
+  .bar button{font:inherit;font-weight:700;font-size:14px;color:var(--ink);
+    border:none;background:#fff;padding:9px 14px;border-radius:12px;cursor:pointer;
+    box-shadow:0 2px 0 rgba(150,110,160,.18);transition:transform .08s,box-shadow .08s}
+  .bar button:hover{transform:translateY(-1px)}
+  .bar button:active{transform:translateY(1px);box-shadow:0 1px 0 rgba(150,110,160,.18)}
+  .hint{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);z-index:4;
+    font-size:13px;font-weight:600;opacity:.6;pointer-events:none;user-select:none;
+    text-align:center;text-shadow:0 1px 0 rgba(255,255,255,.6);white-space:nowrap}
+  .count{position:fixed;top:18px;right:20px;z-index:5;font-weight:800;font-size:15px;
+    opacity:.55;user-select:none;pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>果冻工厂</b><span>戳一戳 · 拖着甩 · 点空白生一坨</span></div>
+<div class="count" id="count"></div>
+<div class="hint" id="hint">试试戳它一下 👆</div>
+<div class="bar">
+  <button id="add">＋ 加一坨</button>
+  <button id="rain">🌧️ 果冻雨</button>
+  <button id="shake">💥 摇一摇</button>
+  <button id="reset">↺ 重置</button>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr;
+  cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize',resize); resize();
+
+// ---- palette ----
+const CANDY=[
+  {a:'#ff9ec2',b:'#ff6ea0'}, // pink
+  {a:'#ffd39a',b:'#ff9f5a'}, // peach
+  {a:'#fff29a',b:'#ffd94d'}, // lemon
+  {a:'#b6f5b0',b:'#66df7e'}, // mint
+  {a:'#a9ecff',b:'#5cc9ff'}, // sky
+  {a:'#c3b6ff',b:'#8f7bff'}, // lavender
+  {a:'#ffc0e6',b:'#ff7fd0'}, // bubblegum
+];
+
+// ---- physics params ----
+const G=1500, KS=90, KD=7, PRESS=5.6e5, REST=0.28, FRIC=0.86, LIN_DAMP=0.6;
+const SUB=5;
+let orient=1; // outward-normal sign, auto-corrected on first blob
+
+let blobs=[];
+let idc=0;
+
+function makeBlob(cx,cy,r,col){
+  const n=22;
+  const b={id:idc++, n, col:col||CANDY[(Math.random()*CANDY.length)|0],
+    px:new Float32Array(n),py:new Float32Array(n),
+    vx:new Float32Array(n),vy:new Float32Array(n),
+    r0:r, surprise:0, blink:2+Math.random()*4};
+  const L0=2*r*Math.sin(Math.PI/n);
+  b.L0=L0;
+  for(let i=0;i<n;i++){
+    const th=i/n*Math.PI*2;
+    b.px[i]=cx+Math.cos(th)*r;
+    b.py[i]=cy+Math.sin(th)*r;
+  }
+  return b;
+}
+function centroid(b){
+  let x=0,y=0; for(let i=0;i<b.n;i++){x+=b.px[i];y+=b.py[i];}
+  return [x/b.n,y/b.n];
+}
+function area(b){
+  let A=0; for(let i=0;i<b.n;i++){const j=(i+1)%b.n; A+=b.px[i]*b.py[j]-b.px[j]*b.py[i];}
+  return A*0.5;
+}
+
+// ---- interaction ----
+let pointer={x:W/2,y:H/2,active:false};
+let grab=null; // {blob, idx, downX,downY, moved, t0}
+
+function nearestBlob(x,y){
+  let best=null,bd=1e9,bi=0;
+  for(const b of blobs){
+    for(let i=0;i<b.n;i++){
+      const dx=b.px[i]-x, dy=b.py[i]-y, d=dx*dx+dy*dy;
+      if(d<bd){bd=d;best=b;bi=i;}
+    }
+  }
+  return {blob:best, idx:bi, dist:Math.sqrt(bd)};
+}
+
+function poke(b,x,y,power){
+  b.surprise=Math.min(1.6,b.surprise+power);
+  for(let i=0;i<b.n;i++){
+    const dx=b.px[i]-x, dy=b.py[i]-y, d=Math.hypot(dx,dy)+.001;
+    if(d<b.r0*1.9){
+      const f=(1-d/(b.r0*1.9))*power*900;
+      b.vx[i]+=dx/d*f; b.vy[i]+=dy/d*f;
+    }
+  }
+}
+
+function onDown(x,y){
+  pointer.x=x;pointer.y=y;pointer.active=true;
+  const hit=nearestBlob(x,y);
+  if(hit.blob && hit.dist<hit.blob.r0*1.4){
+    grab={blob:hit.blob, idx:hit.idx, downX:x, downY:y, moved:false, t0:performance.now()};
+  } else {
+    grab={spawnAt:[x,y]};
+  }
+  hideHint();
+}
+function onMove(x,y){
+  pointer.x=x;pointer.y=y;
+  if(grab && grab.blob){
+    if(Math.hypot(x-grab.downX,y-grab.downY)>6) grab.moved=true;
+  }
+}
+function onUp(x,y){
+  pointer.active=false;
+  if(grab){
+    if(grab.blob && !grab.moved){
+      poke(grab.blob,x,y,1.1);
+    } else if(grab.spawnAt && Math.hypot(x-grab.spawnAt[0],y-grab.spawnAt[1])<10){
+      spawn(x,y);
+    }
+  }
+  grab=null;
+}
+
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);onDown(e.clientX,e.clientY);});
+cv.addEventListener('pointermove',e=>{onMove(e.clientX,e.clientY);});
+cv.addEventListener('pointerup',e=>{onUp(e.clientX,e.clientY);});
+cv.addEventListener('pointercancel',()=>{grab=null;pointer.active=false;});
+
+// ---- spawning ----
+function spawn(x,y,r){
+  r=r|| (34+Math.random()*30);
+  x=x==null? 60+Math.random()*(W-120):x;
+  y=y==null? -40-Math.random()*200:y;
+  const b=makeBlob(x,y,r);
+  // little initial pop
+  b.surprise=0.5;
+  blobs.push(b);
+  if(blobs.length>60) blobs.shift();
+  updateCount();
+}
+function updateCount(){document.getElementById('count').textContent=blobs.length+' 坨';}
+
+// ---- step ----
+function step(dt){
+  dt=Math.min(dt,1/30);
+  const h=dt/SUB;
+  for(let s=0;s<SUB;s++){
+    for(const b of blobs){
+      const n=b.n, px=b.px,py=b.py,vx=b.vx,vy=b.vy;
+      let A=area(b);
+      if(orient===1 && A<0) orient=-1; // first-frame orientation fix
+      const P = PRESS/Math.max(Math.abs(A),400);
+      // gravity + light damping baked into accel arrays
+      const fx=new Float32Array(n), fy=new Float32Array(n);
+      for(let i=0;i<n;i++) fy[i]=G;
+      // edges: spring + pressure
+      for(let i=0;i<n;i++){
+        const j=(i+1)%n;
+        let dx=px[j]-px[i], dy=py[j]-py[i];
+        let L=Math.hypot(dx,dy)||1e-4;
+        const ux=dx/L, uy=dy/L;
+        const sf=KS*(L-b.L0);
+        const rv=(vx[j]-vx[i])*ux+(vy[j]-vy[i])*uy;
+        const F=sf+KD*rv;
+        fx[i]+=F*ux; fy[i]+=F*uy; fx[j]-=F*ux; fy[j]-=F*uy;
+        // outward normal
+        let nx=uy*orient, ny=-ux*orient;
+        const pf=P*L*0.5;
+        fx[i]+=nx*pf; fy[i]+=ny*pf; fx[j]+=nx*pf; fy[j]+=ny*pf;
+      }
+      // integrate
+      const damp=Math.max(0,1-LIN_DAMP*h);
+      for(let i=0;i<n;i++){
+        vx[i]=(vx[i]+fx[i]*h)*damp;
+        vy[i]=(vy[i]+fy[i]*h)*damp;
+        px[i]+=vx[i]*h; py[i]+=vy[i]*h;
+        // walls
+        if(px[i]<0){px[i]=0;vx[i]=-vx[i]*REST;vy[i]*=FRIC;}
+        else if(px[i]>W){px[i]=W;vx[i]=-vx[i]*REST;vy[i]*=FRIC;}
+        if(py[i]>H){py[i]=H;vy[i]=-vy[i]*REST;vx[i]*=FRIC;}
+        else if(py[i]<-400){py[i]=-400;vy[i]=Math.abs(vy[i])*.2;}
+      }
+    }
+    // blob-blob soft collision (centroid circles) — makes them pile & shove
+    if(blobs.length>1){
+      const m=blobs.length, cxa=new Float32Array(m),cya=new Float32Array(m),ra=new Float32Array(m);
+      for(let a=0;a<m;a++){const b=blobs[a];const c=centroid(b);cxa[a]=c[0];cya[a]=c[1];ra[a]=Math.sqrt(Math.abs(area(b))/Math.PI);}
+      for(let a=0;a<m;a++){
+        for(let c2=a+1;c2<m;c2++){
+          let dx=cxa[c2]-cxa[a], dy=cya[c2]-cya[a];
+          let d=Math.hypot(dx,dy)||1e-4;
+          const overlap=ra[a]+ra[c2]-d;
+          if(overlap>0){
+            const nx=dx/d, ny=dy/d;
+            const push=overlap*0.22;         // gentle positional correction, split
+            const A=blobs[a], B=blobs[c2];
+            for(let i=0;i<A.n;i++){A.px[i]-=nx*push;A.py[i]-=ny*push;A.vx[i]-=nx*overlap*0.9;A.vy[i]-=ny*overlap*0.9;}
+            for(let i=0;i<B.n;i++){B.px[i]+=nx*push;B.py[i]+=ny*push;B.vx[i]+=nx*overlap*0.9;B.vy[i]+=ny*overlap*0.9;}
+          }
+        }
+      }
+    }
+    // grab drag: pull grabbed point toward pointer (strong)
+    if(grab && grab.blob && pointer.active){
+      const b=grab.blob, i=grab.idx;
+      const kx=(pointer.x-b.px[i]), ky=(pointer.y-b.py[i]);
+      b.vx[i]+=kx*60*h; b.vy[i]+=ky*60*h;
+      b.vx[i]*=0.6; b.vy[i]*=0.6;
+    }
+  }
+  for(const b of blobs){ b.surprise*=Math.pow(0.02,dt); b.blink-=dt; }
+}
+
+// ---- render ----
+function blobPath(b){
+  const n=b.n,px=b.px,py=b.py;
+  const mx=(i)=>(px[i]+px[(i+1)%n])/2, my=(i)=>(py[i]+py[(i+1)%n])/2;
+  ctx.beginPath();
+  ctx.moveTo(mx(n-1),my(n-1));
+  for(let i=0;i<n;i++) ctx.quadraticCurveTo(px[i],py[i],mx(i),my(i));
+  ctx.closePath();
+}
+
+function draw(){
+  // pastel sky
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#fff4f8'); g.addColorStop(.55,'#ffe9f2'); g.addColorStop(1,'#ffdcec');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // soft floor
+  ctx.fillStyle='rgba(180,120,160,.08)'; ctx.fillRect(0,H-6,W,6);
+
+  for(const b of blobs){
+    const [cx,cy]=centroid(b);
+    const A=Math.abs(area(b));
+    const rr=Math.sqrt(A/Math.PI);
+    // shadow on floor
+    const sy=H-3, sScale=Math.max(.15,1-(sy-cy)/(H*.9));
+    ctx.save();
+    ctx.globalAlpha=0.18*sScale;
+    ctx.fillStyle='#7a2a5a';
+    ctx.beginPath();
+    ctx.ellipse(cx,sy,rr*1.1*sScale+8,7*sScale+3,0,0,Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+
+    // body
+    ctx.save();
+    ctx.shadowColor='rgba(150,60,110,.28)';ctx.shadowBlur=18;ctx.shadowOffsetY=6;
+    blobPath(b);
+    const rg=ctx.createRadialGradient(cx-rr*.3,cy-rr*.5,rr*.2,cx,cy,rr*1.25);
+    rg.addColorStop(0,b.col.a); rg.addColorStop(1,b.col.b);
+    ctx.fillStyle=rg; ctx.fill();
+    ctx.restore();
+
+    // glossy rim
+    blobPath(b);
+    ctx.lineWidth=2; ctx.strokeStyle='rgba(255,255,255,.45)'; ctx.stroke();
+
+    // specular highlight
+    ctx.save(); blobPath(b); ctx.clip();
+    ctx.globalAlpha=.5; ctx.fillStyle='#fff';
+    ctx.beginPath();
+    ctx.ellipse(cx-rr*.34,cy-rr*.42,rr*.34,rr*.20,-0.5,0,Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+
+    // face
+    const eyeR=Math.max(4,rr*0.19);
+    const ex=rr*0.34, ey=-rr*0.14;
+    const surprised=b.surprise;
+    const blinking=b.blink<0.13;
+    if(b.blink<0) b.blink=2.5+Math.random()*4.5;
+    for(const sgn of [-1,1]){
+      const eox=cx+sgn*ex, eoy=cy+ey;
+      // sclera
+      ctx.fillStyle='#fff';
+      ctx.beginPath();
+      const eh=blinking?eyeR*0.16:eyeR*(1+surprised*0.35);
+      ctx.ellipse(eox,eoy,eyeR,eh,0,0,Math.PI*2);
+      ctx.fill();
+      if(!blinking){
+        // pupil looks toward pointer
+        let dx=pointer.x-eox, dy=pointer.y-eoy, d=Math.hypot(dx,dy)||1;
+        const pr=eyeR*0.5, off=eyeR*0.42;
+        const pxp=eox+dx/d*off, pyp=eoy+dy/d*off;
+        ctx.fillStyle='#3a2340';
+        ctx.beginPath(); ctx.arc(pxp,pyp,pr,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle='rgba(255,255,255,.9)';
+        ctx.beginPath(); ctx.arc(pxp-pr*0.3,pyp-pr*0.3,pr*0.35,0,Math.PI*2); ctx.fill();
+      }
+    }
+    // mouth
+    ctx.strokeStyle='#7a2a5a'; ctx.lineWidth=Math.max(2,rr*0.05);
+    ctx.lineCap='round';
+    const mo=surprised, my0=cy+rr*0.28;
+    ctx.beginPath();
+    if(mo>0.25){ // surprised "o"
+      ctx.ellipse(cx,my0+rr*0.04,rr*0.12,rr*0.12*(0.6+mo*0.5),0,0,Math.PI*2);
+    } else { // smile
+      ctx.arc(cx,my0-rr*0.05,rr*0.22,0.15*Math.PI,0.85*Math.PI);
+    }
+    ctx.stroke();
+
+    // blush
+    ctx.fillStyle='rgba(255,120,160,.28)';
+    for(const sgn of [-1,1]){
+      ctx.beginPath();
+      ctx.ellipse(cx+sgn*rr*0.52,cy+rr*0.10,rr*0.15,rr*0.10,0,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  // pointer ripple when grabbing
+  if(grab && grab.blob && pointer.active){
+    ctx.strokeStyle='rgba(255,255,255,.6)';ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(pointer.x,pointer.y,14,0,Math.PI*2);ctx.stroke();
+  }
+}
+
+// ---- loop ----
+let last=performance.now();
+function frame(t){
+  const dt=(t-last)/1000; last=t;
+  step(dt||0.016);
+  draw();
+  requestAnimationFrame(frame);
+}
+
+// ---- buttons ----
+let hintGone=false;
+function hideHint(){ if(!hintGone){hintGone=true; const h=document.getElementById('hint'); h.style.transition='opacity .5s'; h.style.opacity='0';} }
+document.getElementById('add').onclick=()=>{spawn(60+Math.random()*(W-120),-60);hideHint();};
+document.getElementById('rain').onclick=()=>{for(let i=0;i<14;i++) setTimeout(()=>spawn(),i*90);hideHint();};
+document.getElementById('shake').onclick=()=>{
+  for(const b of blobs){const ax=(Math.random()-.5)*1600, ay=-600-Math.random()*900;
+    for(let i=0;i<b.n;i++){b.vx[i]+=ax;b.vy[i]+=ay;} b.surprise=1.4;}
+  hideHint();
+};
+document.getElementById('reset').onclick=()=>{blobs=[];init();};
+
+function init(){
+  const N=5;
+  for(let i=0;i<N;i++) spawn(W*(0.2+0.6*i/(N-1)), H*0.4-i*30, 40+Math.random()*20);
+  updateCount();
+}
+init();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

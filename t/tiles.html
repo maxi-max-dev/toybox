@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>别踩白块 · Tiles</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#0a0a16;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#e6e8ff;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:14px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:18px;font-weight:800;letter-spacing:2px}
+  .title span{display:block;font-size:12px;opacity:.55;margin-top:2px;font-weight:600}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>别踩白块</b><span>点亮下落方块，弹出旋律</span></div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,LANES=4,laneW=0,rowH=0;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  laneW=W/LANES; rowH=H*0.24;
+}
+window.addEventListener('resize',resize); resize();
+
+let actx=null,master=null;
+function initAudio(){ if(actx)return; try{actx=new(window.AudioContext||window.webkitAudioContext)();master=actx.createGain();master.gain.value=0.5;master.connect(actx.destination);}catch(e){} }
+const MELODY=[0,2,4,5,7,7,9,9,7,5,5,4,4,2,2,0]; // simple rising-falling tune (semitones)
+function note(i){ if(!actx)return; const semi=MELODY[i%MELODY.length]+ (Math.floor(i/MELODY.length)%2)*0; const f=261.63*Math.pow(2,semi/12);
+  const t=actx.currentTime; const o=actx.createOscillator();o.type='triangle';o.frequency.value=f;
+  const o2=actx.createOscillator();o2.type='sine';o2.frequency.value=f*2;
+  const g=actx.createGain();g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.5,t+0.008);g.gain.exponentialRampToValueAtTime(0.0004,t+0.9);
+  const g2=actx.createGain();g2.gain.setValueAtTime(0.0001,t);g2.gain.exponentialRampToValueAtTime(0.12,t+0.006);g2.gain.exponentialRampToValueAtTime(0.0003,t+0.4);
+  o.connect(g);o2.connect(g2);g.connect(master);g2.connect(master);o.start(t);o2.start(t);o.stop(t+0.95);o2.stop(t+0.45);}
+function thud(){ if(!actx)return; const t=actx.currentTime;const o=actx.createOscillator();o.type='sawtooth';o.frequency.setValueAtTime(200,t);o.frequency.exponentialRampToValueAtTime(50,t+0.3);const g=actx.createGain();g.gain.setValueAtTime(0.4,t);g.gain.exponentialRampToValueAtTime(0.0001,t+0.35);o.connect(g);g.connect(master);o.start(t);o.stop(t+0.37);}
+
+let tiles=[], score=0, best=0, state='ready', speed=0, t=0, flash=[];
+function reset(){ tiles=[]; score=0; state='play'; speed=rowH*2.4; t=0; flash=[];
+  // fill a column of upcoming tiles from bottom up
+  let y=H-rowH; let lastLane=-1;
+  for(let i=0;i<7;i++){ let ln; do{ln=(Math.random()*LANES)|0;}while(ln===lastLane&&Math.random()<0.5); lastLane=ln; tiles.push({lane:ln,y,tapped:false,idx:i,glow:0}); y-=rowH; }
+  nextIdx=0;
+}
+let nextIdx=0;
+function addTop(){ // ensure tiles fill above screen
+  let top=Infinity, maxIdx=-1; for(const t of tiles){ if(t.y<top)top=t.y; if(t.idx>maxIdx)maxIdx=t.idx; }
+  while(top> -rowH*1.2){ let ln=(Math.random()*LANES)|0; top-=rowH; maxIdx++; tiles.push({lane:ln,y:top,tapped:false,idx:maxIdx,glow:0}); }
+}
+
+function bottomUntapped(){ let best=null; for(const tt of tiles){ if(!tt.tapped){ if(!best||tt.y>best.y)best=tt; } } return best; }
+function tapLane(L){
+  if(state==='ready'){ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); reset(); return; }
+  if(state==='over'){ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); reset(); return; }
+  const bt=bottomUntapped();
+  if(bt && bt.lane===L && bt.y>-rowH){ bt.tapped=true; bt.glow=1; note(score); score++; best=Math.max(best,score); speed=rowH*(2.4+score*0.05); flash.push({lane:L,y:bt.y,life:0.4}); }
+  else { state='over'; best=Math.max(best,score); thud(); }
+}
+
+function update(dt){
+  if(state!=='play')return;
+  for(const tt of tiles){ tt.y+=speed*dt; if(tt.glow>0)tt.glow-=dt*3; }
+  addTop();
+  // fail if an untapped tile passed the bottom
+  for(const tt of tiles){ if(!tt.tapped && tt.y>H){ state='over'; best=Math.max(best,score); thud(); break; } }
+  tiles=tiles.filter(tt=>tt.y<H+rowH*1.5);
+  for(let i=flash.length-1;i>=0;i--){flash[i].life-=dt;flash[i].y+=speed*dt;if(flash[i].life<=0)flash.splice(i,1);}
+}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function draw(){
+  ctx.fillStyle='#0a0a16'; ctx.fillRect(0,0,W,H);
+  // lane dividers
+  ctx.strokeStyle='rgba(120,130,200,.10)'; ctx.lineWidth=1;
+  for(let i=1;i<LANES;i++){ ctx.beginPath();ctx.moveTo(i*laneW,0);ctx.lineTo(i*laneW,H);ctx.stroke(); }
+  // bottom line
+  ctx.strokeStyle='rgba(150,160,255,.2)'; ctx.beginPath();ctx.moveTo(0,H-rowH*0.06);ctx.lineTo(W,H-rowH*0.06);ctx.stroke();
+  // tiles
+  const pad=laneW*0.08;
+  for(const tt of tiles){
+    const x=tt.lane*laneW+pad, y=tt.y+pad, w=laneW-pad*2, h=rowH-pad*2;
+    if(tt.tapped){ rr(x,y,w,h,10); const a=0.35+tt.glow*0.6; ctx.fillStyle='hsla('+(190+tt.lane*30)+',90%,'+(55+tt.glow*20)+'%,'+a+')';
+      if(tt.glow>0){ctx.shadowColor='hsla('+(190+tt.lane*30)+',95%,60%,.9)';ctx.shadowBlur=24*tt.glow;} ctx.fill(); ctx.shadowBlur=0; }
+    else { rr(x,y,w,h,10); const g=ctx.createLinearGradient(x,y,x,y+h); g.addColorStop(0,'#2b3350'); g.addColorStop(1,'#20263f');
+      ctx.fillStyle=g; ctx.fill(); ctx.strokeStyle='rgba(120,150,255,.35)';ctx.lineWidth=2;ctx.stroke();
+      // little glowing dot to signal "tap me"
+      ctx.fillStyle='rgba(150,200,255,.5)'; ctx.beginPath();ctx.arc(x+w/2,y+h/2,Math.min(w,h)*0.12,0,6.28);ctx.fill();
+    }
+  }
+  for(const f of flash){ ctx.globalAlpha=Math.max(0,f.life/0.4); ctx.strokeStyle='hsl('+(190+f.lane*30)+',95%,70%)'; ctx.lineWidth=3; rr(f.lane*laneW+pad,f.y+pad,laneW-pad*2,rowH-pad*2,10); ctx.stroke(); ctx.globalAlpha=1; }
+  // HUD
+  ctx.fillStyle='#e6e8ff'; ctx.font='800 40px -apple-system,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+  if(state==='play') ctx.fillText(score, W/2, 64);
+  ctx.textAlign='left';
+  if(state==='ready'||state==='over'){
+    ctx.fillStyle='rgba(10,10,22,0.72)'; ctx.fillRect(0,0,W,H); ctx.textAlign='center'; ctx.fillStyle='#fff';
+    if(state==='ready'){ ctx.font='800 40px -apple-system,sans-serif'; ctx.fillText('别踩白块', W/2,H*0.42);
+      ctx.font='600 19px -apple-system,sans-serif'; ctx.fillStyle='#aeb6ff'; ctx.fillText('点最下面那个方块，按住旋律往上点', W/2,H*0.42+38);
+      ctx.font='800 24px -apple-system,sans-serif'; ctx.fillStyle='#38e8ff'; ctx.fillText('▶ 点屏幕开始', W/2,H*0.42+92);
+    } else { ctx.font='800 38px -apple-system,sans-serif'; ctx.fillText('结束啦', W/2,H*0.38);
+      ctx.font='800 58px -apple-system,sans-serif'; ctx.fillStyle='#38e8ff'; ctx.fillText(score+' 分', W/2,H*0.38+68);
+      ctx.font='600 20px -apple-system,sans-serif'; ctx.fillStyle='#fff'; ctx.fillText('最佳 '+best+'　点屏幕再来', W/2,H*0.38+108); }
+    ctx.textAlign='left';
+  }
+}
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.04); last=now; t+=dt; update(dt); draw(); requestAnimationFrame(frame); }
+
+cv.addEventListener('pointerdown',e=>{e.preventDefault(); tapLane(Math.min(LANES-1,Math.max(0,(e.clientX/W*LANES)|0))); });
+addEventListener('keydown',e=>{ const m={a:0,s:1,k:2,l:3,'1':0,'2':1,'3':2,'4':3}[e.key]; if(m!==undefined){e.preventDefault();tapLane(m);} });
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

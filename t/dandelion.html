@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>蒲公英 · Dandelion</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#cfe6f2;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#4a5a55;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:2px;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+  .title span{display:block;font-size:12px;opacity:.6;margin-top:2px;font-weight:600}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;
+    background:rgba(255,255,255,.72);border:1px solid rgba(120,150,140,.2);padding:8px;border-radius:15px;backdrop-filter:blur(10px);box-shadow:0 8px 24px rgba(90,120,110,.18)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#4a5a55;border:none;background:#fff;padding:9px 15px;border-radius:11px;cursor:pointer;box-shadow:0 2px 0 rgba(90,120,110,.16)}
+  .bar button:active{transform:translateY(1px)}
+  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.65;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>蒲公英</b><span>手指划过，把种子吹散</span></div>
+<div class="hint" id="hint">🌬️ 手指划过绒球，吹一口</div>
+<div class="bar"><button id="new">🌱 再长一朵</button></div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,cx=0,cy=0,headR=0;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  cx=W*0.5; cy=H*0.5; headR=Math.min(W,H)*0.15;
+}
+window.addEventListener('resize',resize); resize();
+
+let seeds=[], wind={x:8,y:-2}, t=0;
+function grow(){ seeds=[]; const n=150;
+  for(let i=0;i<n;i++){ const a=Math.random()*6.28, d=Math.pow(Math.random(),0.7)*headR;
+    seeds.push({a,d, hx:cx+Math.cos(a)*d, hy:cy+Math.sin(a)*d, attached:true, x:0,y:0,vx:0,vy:0,rot:a,rotV:0,life:1,ph:Math.random()*6.28,fil:6+((Math.random()*4)|0)}); }
+}
+resize(); grow();
+
+function detach(s,gustx,gusty){ if(!s.attached)return; s.attached=false; s.x=s.hx;s.y=s.hy;
+  const spd=0.4+Math.random()*0.6;
+  s.vx=gustx*spd+(Math.random()-.5)*60; s.vy=gusty*spd-20-Math.random()*40; s.rotV=(Math.random()-.5)*4; }
+
+function blowAt(px,py,dx,dy){ let any=false;
+  for(const s of seeds){ if(!s.attached)continue; const ex=s.hx-px,ey=s.hy-py; if(ex*ex+ey*ey< (headR*0.6)**2){ detach(s,dx*4,dy*4); any=true; } }
+  wind.x=Math.max(-40,Math.min(60, dx*3)); wind.y=Math.min(0,dy*2-4);
+  return any;
+}
+
+function update(dt){
+  // wind eases back to a gentle breeze
+  wind.x += (10-wind.x)*0.4*dt; wind.y += (-3-wind.y)*0.4*dt;
+  // ambient: occasionally a light gust lifts a few
+  if(Math.random()<0.01){ let c=0; for(const s of seeds){ if(s.attached && Math.random()<0.02 && c<3){ detach(s,20+Math.random()*20,-10); c++; } } }
+  for(const s of seeds){ if(s.attached)continue;
+    const turbx=Math.sin(s.ph+t*1.3)*18, turby=Math.cos(s.ph*1.3+t*1.1)*12;
+    s.vx += ((wind.x+turbx)-s.vx)*1.6*dt; s.vy += ((wind.y+turby+22)-s.vy)*1.6*dt; // gentle fall + wind
+    s.x += s.vx*dt; s.y += s.vy*dt; s.rot += s.rotV*dt; s.rotV*=0.99;
+    if(s.x< -60||s.x>W+60||s.y< -60||s.y>H+60) s.life-=dt*0.8;
+    if(s.life<=0){} }
+  seeds=seeds.filter(s=>s.life>0);
+}
+function drawSeed(x,y,rot,scale,alpha){
+  ctx.save(); ctx.translate(x,y); ctx.rotate(rot); ctx.globalAlpha=alpha;
+  // seed body (dark) at bottom + stalk up to pappus
+  ctx.strokeStyle='rgba(120,110,90,'+alpha+')'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(0,scale*4); ctx.lineTo(0,-scale*2); ctx.stroke();
+  ctx.fillStyle='#8a7b5c'; ctx.beginPath(); ctx.ellipse(0,scale*5,scale*0.9,scale*2.0,0,0,6.28); ctx.fill();
+  // pappus filaments (fluffy top)
+  ctx.strokeStyle='rgba(255,255,255,'+(alpha*0.85)+')'; ctx.lineWidth=1;
+  const n=8; for(let i=0;i<n;i++){ const a=-Math.PI/2 + (i/(n-1)-0.5)*Math.PI*1.1; ctx.beginPath(); ctx.moveTo(0,-scale*2); ctx.lineTo(Math.cos(a)*scale*6, -scale*2+Math.sin(a)*scale*6); ctx.stroke(); }
+  ctx.restore();
+}
+function draw(){
+  const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#d6ecf6'); g.addColorStop(0.6,'#cfe6ee'); g.addColorStop(1,'#c2e0cf');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // sun
+  ctx.save();ctx.globalAlpha=.4;ctx.fillStyle='#fff6d8';ctx.beginPath();ctx.arc(W*0.82,H*0.2,50,0,6.28);ctx.fill();ctx.restore();
+  // grass hint
+  ctx.fillStyle='rgba(120,170,110,.25)'; ctx.fillRect(0,H-40,W,40);
+  // stem
+  const attachedCount=seeds.filter(s=>s.attached).length;
+  ctx.strokeStyle='#6fae62'; ctx.lineWidth=4; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(cx,cy+ (attachedCount?headR*0.2:0)); ctx.quadraticCurveTo(cx+8,cy+H*0.2,cx-4,H-30); ctx.stroke();
+  // attached fluffy head: draw radiating filaments per seed
+  for(const s of seeds){ if(!s.attached)continue;
+    ctx.strokeStyle='rgba(240,246,250,0.5)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(s.hx,s.hy); ctx.stroke();
+    // tuft at tip
+    ctx.save(); ctx.translate(s.hx,s.hy); ctx.globalAlpha=0.7;
+    ctx.strokeStyle='rgba(255,255,255,0.8)'; for(let i=0;i<s.fil;i++){ const a=i/s.fil*6.28; ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(Math.cos(a)*4.5,Math.sin(a)*4.5);ctx.stroke(); }
+    ctx.restore();
+  }
+  // center receptacle
+  if(attachedCount){ ctx.fillStyle='#9ec98a'; ctx.beginPath();ctx.arc(cx,cy,headR*0.16,0,6.28);ctx.fill(); }
+  // flying seeds
+  for(const s of seeds){ if(s.attached)continue; drawSeed(s.x,s.y,s.rot, 1, Math.max(0,Math.min(1,s.life))); }
+}
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.04); last=now; t+=dt; update(dt); draw(); requestAnimationFrame(frame); }
+
+// input
+let down=false,px=0,py=0;
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);down=true;px=e.clientX;py=e.clientY;blowAt(px,py,4,-2);hideHint();});
+cv.addEventListener('pointermove',e=>{ if(!down)return; const dx=e.clientX-px,dy=e.clientY-py; blowAt(e.clientX,e.clientY,dx,dy); px=e.clientX;py=e.clientY; });
+cv.addEventListener('pointerup',()=>down=false);
+cv.addEventListener('pointercancel',()=>down=false);
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+document.getElementById('new').onclick=()=>{grow();};
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

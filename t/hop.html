@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>跳一跳 · Hop</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#ffe6c9;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#6a4f3a;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:1px;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+  .title span{display:block;font-size:12px;opacity:.6;margin-top:2px;font-weight:600}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>跳一跳</b><span>按住蓄力，松手跳到下一块</span></div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,floorY=0;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  floorY=H*0.68;
+}
+window.addEventListener('resize',resize); resize();
+
+let actx=null,master=null;
+function initAudio(){ if(actx)return; try{actx=new(window.AudioContext||window.webkitAudioContext)();master=actx.createGain();master.gain.value=0.4;master.connect(actx.destination);}catch(e){} }
+function bl(f,d){ if(!actx)return;const t=actx.currentTime;const o=actx.createOscillator();o.type='triangle';o.frequency.setValueAtTime(f,t);const g=actx.createGain();g.gain.setValueAtTime(0.3,t);g.gain.exponentialRampToValueAtTime(0.0001,t+(d||0.12));o.connect(g);g.connect(master);o.start(t);o.stop(t+(d||0.12)+0.02);}
+function land(){bl(660,0.1);} function perfect(){bl(880,0.08);setTimeout(()=>bl(1200,0.1),80);} function fail(){bl(160,0.4);}
+
+const COLS=['#ff8fa3','#ffb35c','#ffd24d','#7ad08a','#5cc4ff','#a58cff','#ff9ed6'];
+let plats, curIdx, hero, camX, state, score, best=0, power, charging, chargeT, sq;
+function reset(){ plats=[]; let x=W*0.28; for(let i=0;i<4;i++){ plats.push({x, w:60+Math.random()*40, col:COLS[i%COLS.length]}); x+=140+Math.random()*150; }
+  curIdx=0; hero={x:plats[0].x,y:floorY-26,vx:0,vy:0,r:15}; camX=0; state='ready'; score=0; power=0; charging=false; sq=0; }
+resize(); reset();
+
+const PW=Math.min(70,W*0.09), PH=Math.min(130,H*0.22);
+function addPlat(){ const last=plats[plats.length-1]; plats.push({x:last.x+120+Math.random()*180, w:52+Math.random()*46, col:COLS[(plats.length)%COLS.length]}); }
+
+function step(dt){
+  if(charging){ chargeT+=dt; power=Math.min(1.4,chargeT); sq=Math.min(0.4,power*0.32); }
+  if(state==='jump'){ hero.vy+=1500*dt; hero.x+=hero.vx*dt; hero.y+=hero.vy*dt; hero.spin+=hero.vx*dt*0.02;
+    if(hero.vy>0 && hero.y>=floorY-hero.r){ // landed at platform level
+      // find platform under hero
+      let onp=-1; for(let i=0;i<plats.length;i++){ if(Math.abs(hero.x-plats[i].x)<=plats[i].w/2){ onp=i; break; } }
+      if(onp===curIdx+1){ hero.y=floorY-hero.r; const dxc=Math.abs(hero.x-plats[onp].x); curIdx=onp; if(dxc<8){score+=2;perfect();showPerfect=0.8;}else{score++;land();} if(plats.length-curIdx<3)addPlat(); state='scroll'; camTarget=plats[curIdx].x-W*0.28; }
+      else { hero.y=floorY-hero.r; state='over'; best=Math.max(best,score); fail(); }
+    }
+  }
+  if(state==='scroll'){ camX+=(camTarget-camX)*Math.min(1,dt*8); if(Math.abs(camTarget-camX)<1){camX=camTarget;state='ready';} }
+  if(showPerfect>0)showPerfect-=dt;
+}
+let camTarget=0, showPerfect=0;
+function drawHero(x,y){
+  ctx.save();ctx.translate(x,y);
+  const w=hero.r*2*(1+sq*0.5), h=hero.r*2*(1-sq);
+  ctx.fillStyle='rgba(90,60,40,.18)';ctx.beginPath();ctx.ellipse(0,hero.r+sq*hero.r+2,hero.r*0.9,5,0,0,6.28);ctx.fill();
+  const g=ctx.createLinearGradient(0,-h/2,0,h/2);g.addColorStop(0,'#ff7a9c');g.addColorStop(1,'#e85a7c');
+  ctx.fillStyle=g; const rw=w,rh=h;
+  ctx.beginPath();ctx.moveTo(-rw/2+6,-rh/2);ctx.arcTo(rw/2,-rh/2,rw/2,rh/2,8);ctx.arcTo(rw/2,rh/2,-rw/2,rh/2,8);ctx.arcTo(-rw/2,rh/2,-rw/2,-rh/2,8);ctx.arcTo(-rw/2,-rh/2,rw/2,-rh/2,8);ctx.closePath();ctx.fill();
+  ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(-rw*0.16,-rh*0.1,rw*0.12,0,6.28);ctx.arc(rw*0.16,-rh*0.1,rw*0.12,0,6.28);ctx.fill();
+  ctx.fillStyle='#3a2333';ctx.beginPath();ctx.arc(-rw*0.16,-rh*0.08,rw*0.06,0,6.28);ctx.arc(rw*0.16,-rh*0.08,rw*0.06,0,6.28);ctx.fill();
+  ctx.restore();
+}
+function draw(){
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#ffe9cf');g.addColorStop(0.7,'#ffdcc0');g.addColorStop(0.7,'#f3c99a');g.addColorStop(1,'#e6b784');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  ctx.save();ctx.translate(-camX,0);
+  for(let i=0;i<plats.length;i++){ const p=plats[i]; const x=p.x,y=floorY;
+    ctx.fillStyle='rgba(90,60,40,.15)';ctx.beginPath();ctx.ellipse(x,y+2,p.w/2+4,8,0,0,6.28);ctx.fill();
+    ctx.fillStyle=p.col; ctx.fillRect(x-p.w/2,y,p.w,PH);
+    ctx.fillStyle='rgba(255,255,255,.25)';ctx.beginPath();ctx.ellipse(x,y,p.w/2,7,0,0,6.28);ctx.fill();
+    ctx.fillStyle='rgba(0,0,0,.10)';ctx.fillRect(x-p.w/2,y,6,PH);
+    if(i===curIdx+1 && state==='ready'){ ctx.fillStyle='rgba(255,255,255,.5)';ctx.beginPath();ctx.arc(x,y-3,4,0,6.28);ctx.fill(); }
+  }
+  drawHero(hero.x,hero.y);
+  ctx.restore();
+  // power bar
+  if(charging){ const bw=200,bx=W/2-bw/2,by=H-40; ctx.fillStyle='rgba(0,0,0,.12)';ctx.fillRect(bx,by,bw,12); ctx.fillStyle='#ff5a7a';ctx.fillRect(bx,by,bw*(power/1.4),12); }
+  // HUD
+  ctx.fillStyle='#6a4f3a';ctx.font='800 34px -apple-system,sans-serif';ctx.textAlign='center';ctx.textBaseline='alphabetic';ctx.fillText(score,W/2,64);
+  if(showPerfect>0){ ctx.globalAlpha=Math.min(1,showPerfect*2);ctx.fillStyle='#ff5a2c';ctx.font='800 26px -apple-system,sans-serif';ctx.fillText('完美 +2',W/2,104);ctx.globalAlpha=1; }
+  ctx.textAlign='left';
+  if(state==='over'){ ctx.fillStyle='rgba(255,230,201,0.82)';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.fillStyle='#6a4f3a';ctx.font='800 40px -apple-system,sans-serif';ctx.fillText('摔下去了！',W/2,H*0.42);
+    ctx.fillStyle='#ff7a4d';ctx.font='800 54px -apple-system,sans-serif';ctx.fillText(score+' 跳',W/2,H*0.42+64);ctx.fillStyle='#6a4f3a';ctx.font='700 20px -apple-system,sans-serif';ctx.fillText('最佳 '+best+'　点屏幕再来',W/2,H*0.42+104);ctx.textAlign='left'; }
+}
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.033); last=now; step(dt); draw(); requestAnimationFrame(frame); }
+
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);initAudio();if(actx&&actx.state==='suspended')actx.resume();
+  if(state==='over'){reset();return;} if(state==='ready'){ charging=true; chargeT=0; power=0; } });
+cv.addEventListener('pointerup',()=>{ if(charging){ charging=false; sq=0; hero.vx=140+power*470; hero.vy=-(360+power*300); hero.spin=0; state='jump'; } });
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

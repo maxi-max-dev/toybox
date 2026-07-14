@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>混沌摆 · Chaos</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#060610;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#dde0ff;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:2px}
+  .title span{display:block;font-size:12px;opacity:.55;margin-top:3px;font-weight:600}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;
+    background:rgba(18,18,40,.5);border:1px solid rgba(150,150,255,.2);padding:8px 12px;border-radius:15px;backdrop-filter:blur(10px)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#dde0ff;border:1px solid rgba(160,160,255,.25);background:rgba(255,255,255,.05);padding:8px 13px;border-radius:11px;cursor:pointer}
+  .bar button.on{background:linear-gradient(90deg,#8a6cff,#ff6ad0);border-color:transparent;color:#fff}
+  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>混沌摆</b><span>抬起来松手，看它们各自疯</span></div>
+<div class="hint" id="hint">✦ 拖起摆锤，松手释放 ✦</div>
+<div class="bar">
+  <button id="one">① 单摆</button>
+  <button id="many" class="on">🌈 一排</button>
+  <button id="clear">🧹 清痕</button>
+  <button id="reset">↻ 重摆</button>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,pivotX=0,pivotY=0,L1=0,L2=0;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  pivotX=W/2; pivotY=H*0.34; const s=Math.min(W,H); L1=s*0.20; L2=s*0.20;
+  ctx.fillStyle='#060610'; ctx.fillRect(0,0,W,H);
+}
+window.addEventListener('resize',resize); resize();
+
+const G=9.8, M1=1, M2=1;
+let pends=[], mode='many', held=true, t=0;
+function makePends(count){
+  pends=[]; const base=2.4;
+  for(let i=0;i<count;i++){ pends.push({t1:base, t2:base+i*0.0035, w1:0,w2:0, hue:(i/Math.max(1,count-1)*300)|0, trail:[]}); }
+}
+function reset(){ makePends(mode==='one'?1:7); held=false; t=0; }
+makePends(7); held=false;
+
+function deriv(t1,t2,w1,w2){
+  const d=t1-t2, den=2*M1+M2-M2*Math.cos(2*d);
+  const a1=(-G*(2*M1+M2)*Math.sin(t1)-M2*G*Math.sin(t1-2*t2)-2*Math.sin(d)*M2*(w2*w2*L2*0.006+w1*w1*L1*0.006*Math.cos(d)))/(L1*0.006*den);
+  const a2=(2*Math.sin(d)*(w1*w1*L1*0.006*(M1+M2)+G*(M1+M2)*Math.cos(t1)+w2*w2*L2*0.006*M2*Math.cos(d)))/(L2*0.006*den);
+  return [w1,w2,a1,a2];
+}
+function rk4(p,dt){
+  const s=[p.t1,p.t2,p.w1,p.w2];
+  const k1=deriv(s[0],s[1],s[2],s[3]);
+  const k2=deriv(s[0]+k1[0]*dt/2,s[1]+k1[1]*dt/2,s[2]+k1[2]*dt/2,s[3]+k1[3]*dt/2);
+  const k3=deriv(s[0]+k2[0]*dt/2,s[1]+k2[1]*dt/2,s[2]+k2[2]*dt/2,s[3]+k2[3]*dt/2);
+  const k4=deriv(s[0]+k3[0]*dt,s[1]+k3[1]*dt,s[2]+k3[2]*dt,s[3]+k3[3]*dt);
+  p.t1+=dt/6*(k1[0]+2*k2[0]+2*k3[0]+k4[0]);
+  p.t2+=dt/6*(k1[1]+2*k2[1]+2*k3[1]+k4[1]);
+  p.w1+=dt/6*(k1[2]+2*k2[2]+2*k3[2]+k4[2]);
+  p.w2+=dt/6*(k1[3]+2*k2[3]+2*k3[3]+k4[3]);
+}
+function pos(p){ const x1=pivotX+L1*Math.sin(p.t1), y1=pivotY+L1*Math.cos(p.t1);
+  return [x1,y1, x1+L2*Math.sin(p.t2), y1+L2*Math.cos(p.t2)]; }
+
+function step(dt){
+  if(held)return;
+  const SUB=8, h=dt/SUB;
+  for(const p of pends){ for(let s=0;s<SUB;s++) rk4(p,h);
+    const q=pos(p); p.trail.push([q[2],q[3]]); if(p.trail.length>240)p.trail.shift(); }
+}
+function draw(){
+  ctx.fillStyle='#060610'; ctx.fillRect(0,0,W,H);
+  ctx.globalCompositeOperation='lighter';
+  // trails
+  for(const p of pends){ const tr=p.trail; if(tr.length>1){
+    for(let i=1;i<tr.length;i++){ const a=i/tr.length; ctx.strokeStyle='hsla('+p.hue+',95%,62%,'+(a*0.5)+')'; ctx.lineWidth=1+a*1.5;
+      ctx.beginPath();ctx.moveTo(tr[i-1][0],tr[i-1][1]);ctx.lineTo(tr[i][0],tr[i][1]);ctx.stroke(); } } }
+  ctx.globalCompositeOperation='source-over';
+  // arms + bobs
+  for(const p of pends){ const q=pos(p);
+    ctx.strokeStyle='rgba(220,225,255,'+(pends.length>1?0.32:0.8)+')'; ctx.lineWidth=pends.length>1?1.4:3; ctx.lineCap='round';
+    ctx.beginPath();ctx.moveTo(pivotX,pivotY);ctx.lineTo(q[0],q[1]);ctx.lineTo(q[2],q[3]);ctx.stroke();
+    ctx.fillStyle='hsl('+p.hue+',95%,65%)'; ctx.shadowColor='hsl('+p.hue+',95%,60%)'; ctx.shadowBlur=10;
+    ctx.beginPath();ctx.arc(q[2],q[3],pends.length>1?4:8,0,6.28);ctx.fill(); ctx.shadowBlur=0;
+    if(pends.length<=1){ ctx.fillStyle='#dde0ff'; ctx.beginPath();ctx.arc(q[0],q[1],5,0,6.28);ctx.fill(); }
+  }
+  // pivot
+  ctx.fillStyle='#8a8ab0'; ctx.beginPath();ctx.arc(pivotX,pivotY,5,0,6.28);ctx.fill();
+}
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.033); last=now; t+=dt; step(dt); draw(); requestAnimationFrame(frame); }
+
+// ---- input ----
+let down=false;
+function setFromPointer(x,y){ const ang=Math.atan2(x-pivotX, y-pivotY); const base=mode==='one'?0:0.0035;
+  for(let i=0;i<pends.length;i++){ pends[i].t1=ang; pends[i].t2=ang+i*base; pends[i].w1=0;pends[i].w2=0; pends[i].trail=[]; } }
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);down=true;held=true;setFromPointer(e.clientX,e.clientY);hideHint();});
+cv.addEventListener('pointermove',e=>{if(down)setFromPointer(e.clientX,e.clientY);});
+cv.addEventListener('pointerup',()=>{down=false;held=false;});
+cv.addEventListener('pointercancel',()=>{down=false;held=false;});
+
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+document.getElementById('one').onclick=e=>{mode='one';document.getElementById('many').classList.remove('on');e.target.classList.add('on');reset();};
+document.getElementById('many').onclick=e=>{mode='many';document.getElementById('one').classList.remove('on');e.target.classList.add('on');reset();};
+document.getElementById('clear').onclick=()=>{for(const p of pends)p.trail=[];};
+document.getElementById('reset').onclick=()=>reset();
+document.getElementById('one').classList.remove('on');
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

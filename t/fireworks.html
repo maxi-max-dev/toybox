@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>烟花 · Fireworks</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#05061a;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#dfe4ff;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:3px}
+  .title span{display:block;font-size:12px;opacity:.6;margin-top:3px;font-weight:600;letter-spacing:1px}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;
+    background:rgba(20,22,50,.5);border:1px solid rgba(150,150,255,.2);padding:8px 12px;border-radius:15px;backdrop-filter:blur(10px)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#dfe4ff;border:1px solid rgba(160,160,255,.25);
+    background:rgba(255,255,255,.05);padding:8px 13px;border-radius:11px;cursor:pointer}
+  .bar button.on{background:linear-gradient(90deg,#ff5a8a,#ffa94d);border-color:transparent;color:#fff}
+  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;
+    opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>烟花</b><span>点一下夜空，放一朵烟花</span></div>
+<div class="hint" id="hint">✨ 点点上面的夜空 ✨</div>
+<div class="bar">
+  <button id="auto" class="on">🎆 自动</button>
+  <button id="mute">🔊 有声</button>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,stars=[],city=[],sky=null;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  sky=ctx.createLinearGradient(0,0,0,H); sky.addColorStop(0,'#070826'); sky.addColorStop(.6,'#131238'); sky.addColorStop(1,'#241a3e');
+  stars=[]; for(let i=0;i<90;i++) stars.push({x:Math.random()*W,y:Math.random()*H*0.75,r:Math.random()*1.3+0.3,p:Math.random()*6.28});
+  city=[]; let x=0; while(x<W){ const w=20+Math.random()*60, h=30+Math.random()*120; city.push({x,w,h}); x+=w+2; }
+  ctx.fillStyle=sky; ctx.fillRect(0,0,W,H);
+}
+window.addEventListener('resize',resize); resize();
+
+// ---- audio ----
+let actx=null,master=null,muted=false,noiseBuf=null;
+function initAudio(){ if(actx)return; try{actx=new(window.AudioContext||window.webkitAudioContext)();master=actx.createGain();master.gain.value=0.5;master.connect(actx.destination);
+  noiseBuf=actx.createBuffer(1,actx.sampleRate*0.5,actx.sampleRate); const d=noiseBuf.getChannelData(0); for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;}catch(e){} }
+function boom(vol){ if(!actx||muted)return; const t=actx.currentTime; vol=vol||1;
+  const src=actx.createBufferSource();src.buffer=noiseBuf; const f=actx.createBiquadFilter();f.type='lowpass';f.frequency.setValueAtTime(1800,t);f.frequency.exponentialRampToValueAtTime(300,t+0.4);
+  const g=actx.createGain();g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.5*vol,t+0.01);g.gain.exponentialRampToValueAtTime(0.0001,t+0.5);
+  src.connect(f);f.connect(g);g.connect(master);src.start(t);src.stop(t+0.5);
+  const o=actx.createOscillator();o.type='sine';o.frequency.setValueAtTime(80,t);o.frequency.exponentialRampToValueAtTime(35,t+0.3);
+  const g2=actx.createGain();g2.gain.setValueAtTime(0.6*vol,t);g2.gain.exponentialRampToValueAtTime(0.0001,t+0.35);o.connect(g2);g2.connect(master);o.start(t);o.stop(t+0.4);}
+function whoosh(){ if(!actx||muted)return; const t=actx.currentTime; const o=actx.createOscillator();o.type='sine';o.frequency.setValueAtTime(220,t);o.frequency.exponentialRampToValueAtTime(660,t+0.5);
+  const g=actx.createGain();g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.12,t+0.05);g.gain.exponentialRampToValueAtTime(0.0001,t+0.55);o.connect(g);g.connect(master);o.start(t);o.stop(t+0.6);}
+
+// ---- entities ----
+let rockets=[], parts=[];
+function launch(tx,ty){
+  tx=tx==null? W*(0.2+Math.random()*0.6):tx;
+  ty=ty==null? H*(0.12+Math.random()*0.35):ty;
+  const sx=W*0.5+(tx-W*0.5)*0.2 + (Math.random()-.5)*40;
+  const dist=H-ty; const vy=-Math.sqrt(2*900*dist)*0.62;
+  rockets.push({x:sx,y:H,vx:(tx-sx)/((-vy)/900),vy,ty,hue:(Math.random()*360)|0,type:(Math.random()*3)|0});
+  whoosh();
+}
+function explode(r){
+  const n=70+((Math.random()*70)|0);
+  const speed=120+Math.random()*120;
+  const multi=Math.random()<0.35;
+  for(let i=0;i<n;i++){
+    let a,sp;
+    if(r.type===1){ a=i/n*6.28; sp=speed; } // ring
+    else { a=Math.random()*6.28; sp=speed*(0.35+Math.random()*0.65); } // sphere
+    let vx=Math.cos(a)*sp, vy=Math.sin(a)*sp;
+    let life=1.1+Math.random()*0.8, drag=0.86;
+    if(r.type===2){ vy=Math.abs(vy)*0.5+40; vx*=0.7; life=1.6+Math.random()*1.0; drag=0.9; } // willow droop
+    const hue=multi? (Math.random()*360)|0 : (r.hue+(Math.random()*40-20))|0;
+    parts.push({x:r.x,y:r.y,vx,vy,life,maxLife:life,hue,drag,trail:r.type===2});
+  }
+  boom(Math.min(1,n/120));
+}
+function update(dt){
+  for(let i=rockets.length-1;i>=0;i--){ const r=rockets[i]; r.vy+=900*dt; r.x+=r.vx*dt; r.y+=r.vy*dt;
+    // spark trail
+    parts.push({x:r.x,y:r.y,vx:(Math.random()-.5)*20,vy:(Math.random()-.5)*20+20,life:0.3,maxLife:0.3,hue:40,drag:0.9,spark:true});
+    if(r.vy>=0 || r.y<=r.ty){ explode(r); rockets.splice(i,1); } }
+  for(let i=parts.length-1;i>=0;i--){ const p=parts[i]; p.life-=dt; if(p.life<=0){parts.splice(i,1);continue;}
+    p.vy+=(p.spark?300:150)*dt; p.vx*=Math.pow(p.drag||0.86,dt*60/60*1); p.vy*=(p.drag||0.86)**(dt*1);
+    p.vx*=1-(1-(p.drag||.86))*dt*3; // gentle air drag
+    p.x+=p.vx*dt; p.y+=p.vy*dt; }
+}
+
+let AUTO=true, autoNext=0, t=0;
+function draw(){
+  // fade toward night (keeps sky gradient + makes comet trails)
+  ctx.globalCompositeOperation='source-over';
+  ctx.globalAlpha=0.26; ctx.fillStyle=sky; ctx.fillRect(0,0,W,H); ctx.globalAlpha=1;
+  // stars
+  for(const s of stars){ const tw=0.5+0.5*Math.sin(t*2+s.p); ctx.fillStyle='rgba(255,255,255,'+(0.3+tw*0.6)+')'; ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,6.28);ctx.fill(); }
+  // moon
+  ctx.fillStyle='rgba(255,250,220,.85)'; ctx.beginPath();ctx.arc(W*0.84,H*0.16,26,0,6.28);ctx.fill();
+  ctx.fillStyle='rgba(255,250,220,.12)'; ctx.beginPath();ctx.arc(W*0.84,H*0.16,40,0,6.28);ctx.fill();
+  // city silhouette
+  ctx.fillStyle='#0a0a1e';
+  for(const b of city){ ctx.fillRect(b.x,H-b.h,b.w,b.h); }
+  // fireworks (additive glow)
+  ctx.globalCompositeOperation='lighter';
+  for(const p of parts){ const a=Math.max(0,p.life/p.maxLife); const r=(p.spark?1.4:2.2)*(0.4+a*0.6);
+    ctx.fillStyle='hsla('+p.hue+',100%,'+(60+a*15)+'%,'+a+')'; ctx.beginPath();ctx.arc(p.x,p.y,r,0,6.28);ctx.fill(); }
+  for(const r of rockets){ ctx.fillStyle='hsla(45,100%,80%,1)'; ctx.beginPath();ctx.arc(r.x,r.y,2.4,0,6.28);ctx.fill(); }
+  ctx.globalCompositeOperation='source-over';
+}
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.04); last=now; t+=dt;
+  if(AUTO && t>autoNext){ autoNext=t+0.7+Math.random()*1.3; launch(); }
+  update(dt); draw(); requestAnimationFrame(frame); }
+
+// ---- input ----
+function tap(x,y){ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); if(y>H*0.85)return; launch(x,y); hideHint(); }
+cv.addEventListener('pointerdown',e=>{e.preventDefault();tap(e.clientX,e.clientY);});
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+document.getElementById('auto').onclick=e=>{AUTO=!AUTO;e.target.classList.toggle('on',AUTO);};
+document.getElementById('mute').onclick=e=>{muted=!muted;e.target.textContent=muted?'🔇 静音':'🔊 有声';};
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

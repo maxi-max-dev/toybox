@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>雨窗 · RainWindow</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#0a1420;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#dbe6f0;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none;text-shadow:0 1px 4px rgba(0,0,0,.5)}
+  .title b{font-size:19px;font-weight:800;letter-spacing:3px}
+  .title span{display:block;font-size:12px;opacity:.7;margin-top:3px;font-weight:600}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;
+    background:rgba(20,32,46,.5);border:1px solid rgba(150,180,210,.2);padding:8px 12px;border-radius:15px;backdrop-filter:blur(10px)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#dbe6f0;border:1px solid rgba(160,190,220,.25);background:rgba(255,255,255,.05);padding:8px 13px;border-radius:11px;cursor:pointer}
+  .bar button.on{background:linear-gradient(90deg,#5a9bd8,#8a7bd8);border-color:transparent;color:#fff}
+  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.7;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 4px rgba(0,0,0,.5)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>雨窗</b><span>手指抹一抹，擦开雾气</span></div>
+<div class="hint" id="hint">☔ 手指在雾玻璃上划一划</div>
+<div class="bar">
+  <button id="rain" class="on">🌧️ 下雨</button>
+  <button id="fog">🌫️ 重新起雾</button>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,bg,bgc,fog,fogc,drops=[];
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,1.5);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  bg=document.createElement('canvas'); bg.width=W; bg.height=H; bgc=bg.getContext('2d'); paintBg();
+  fog=document.createElement('canvas'); fog.width=W; fog.height=H; fogc=fog.getContext('2d'); resetFog();
+  drops=[];
+}
+window.addEventListener('resize',resize);
+function paintBg(){
+  const g=bgc.createLinearGradient(0,0,0,H); g.addColorStop(0,'#122238'); g.addColorStop(0.6,'#16243a'); g.addColorStop(1,'#1a2033');
+  bgc.fillStyle=g; bgc.fillRect(0,0,W,H);
+  bgc.globalCompositeOperation='lighter';
+  const cols=['#ffb04d','#ff8a3d','#ffd27a','#6ab8ff','#8affe0','#ff7fb0','#c58bff','#ffe08a'];
+  // big soft bokeh city lights
+  for(let i=0;i<46;i++){ const x=Math.random()*W,y=Math.random()*H,r=40+Math.random()*130,c=cols[(Math.random()*cols.length)|0];
+    const rg=bgc.createRadialGradient(x,y,0,x,y,r); rg.addColorStop(0,c); rg.addColorStop(1,'rgba(0,0,0,0)');
+    bgc.globalAlpha=0.45+Math.random()*0.4; bgc.fillStyle=rg; bgc.fillRect(x-r,y-r,r*2,r*2); }
+  // bright little cores (streetlights / windows)
+  for(let i=0;i<70;i++){ const x=Math.random()*W,y=Math.random()*H,r=4+Math.random()*12,c=cols[(Math.random()*cols.length)|0];
+    const rg=bgc.createRadialGradient(x,y,0,x,y,r); rg.addColorStop(0,'#fff'); rg.addColorStop(0.4,c); rg.addColorStop(1,'rgba(0,0,0,0)');
+    bgc.globalAlpha=0.6+Math.random()*0.4; bgc.fillStyle=rg; bgc.fillRect(x-r,y-r,r*2,r*2); }
+  bgc.globalAlpha=1; bgc.globalCompositeOperation='source-over';
+}
+function resetFog(){ fogc.globalCompositeOperation='source-over'; fogc.clearRect(0,0,W,H);
+  fogc.fillStyle='rgba(170,184,200,0.80)'; fogc.fillRect(0,0,W,H);
+  // subtle frost texture
+  fogc.globalAlpha=0.08; for(let i=0;i<1400;i++){ fogc.fillStyle=Math.random()<0.5?'#fff':'#8090a0'; fogc.fillRect(Math.random()*W,Math.random()*H,2,2);} fogc.globalAlpha=1;
+}
+resize();
+
+function eraseFog(x,y,r,strength){ fogc.globalCompositeOperation='destination-out'; fogc.fillStyle='rgba(0,0,0,'+strength+')';
+  fogc.beginPath(); fogc.arc(x,y,r,0,6.28); fogc.fill(); fogc.globalCompositeOperation='source-over'; }
+
+let rain=true, t=0;
+function spawnStatic(){ for(let i=0;i<3;i++){ const r=1+Math.random()*2.4; drops.push({x:Math.random()*W,y:Math.random()*H,r,vy:0,slide:false}); }
+  if(drops.length>1400) drops.splice(0,50); }
+function update(dt){
+  if(rain){ spawnStatic();
+    // promote some to sliding
+    for(const d of drops){ if(!d.slide && d.r>2.0 && Math.random()<0.006){ d.slide=true; d.vy=20+Math.random()*30; } }
+    if(Math.random()<0.25){ const d={x:Math.random()*W,y:-8,r:4+Math.random()*4,vy:60,slide:true}; drops.push(d); }
+  }
+  for(let i=drops.length-1;i>=0;i--){ const d=drops[i];
+    if(d.slide){ d.vy=Math.min(420,d.vy+520*dt*(0.3+d.r*0.06)); const ox=d.x,oy=d.y; d.y+=d.vy*dt; d.x+=Math.sin(d.y*0.05+i)*0.4;
+      // erase trail
+      const steps=Math.max(1,Math.floor((d.y-oy)/3));
+      for(let s=1;s<=steps;s++){ const yy=oy+(d.y-oy)*s/steps; eraseFog(d.x,yy,d.r*0.8,0.5); }
+      eraseFog(d.x,d.y,d.r*1.15,0.85);
+      // absorb nearby static drops
+      for(let j=drops.length-1;j>=0;j--){ if(j===i)continue; const o=drops[j]; if(o.slide)continue; const dx=o.x-d.x,dy=o.y-d.y;
+        if(dx*dx+dy*dy<(d.r+o.r+2)**2){ d.r=Math.min(11,Math.sqrt(d.r*d.r+o.r*o.r)); drops.splice(j,1); if(j<i)i--; } }
+      if(d.y>H+12) drops.splice(i,1);
+    } else { eraseFog(d.x,d.y,d.r,0.5); }
+  }
+  // re-fog slowly (condensation)
+  if(rain){ fogc.globalCompositeOperation='source-over'; fogc.fillStyle='rgba(158,172,188,0.010)'; fogc.fillRect(0,0,W,H); }
+}
+function draw(){
+  ctx.drawImage(bg,0,0,W,H);
+  ctx.drawImage(fog,0,0,W,H);
+  // drop highlights for wet-glass look
+  for(const d of drops){ if(d.r<1.2)continue;
+    ctx.fillStyle='rgba(255,255,255,0.22)'; ctx.beginPath(); ctx.arc(d.x-d.r*0.3,d.y-d.r*0.35,d.r*0.35,0,6.28); ctx.fill();
+    ctx.strokeStyle='rgba(210,230,250,0.18)'; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(d.x,d.y,d.r,0,6.28); ctx.stroke();
+  }
+}
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.05); last=now; t+=dt; update(dt); draw(); requestAnimationFrame(frame); }
+
+// ---- input: wipe fog ----
+let down=false,px=0,py=0;
+function wipe(x,y){ if(px||py){ const steps=Math.max(1,Math.floor(Math.hypot(x-px,y-py)/6)); for(let s=0;s<=steps;s++){ const xx=px+(x-px)*s/steps, yy=py+(y-py)*s/steps; eraseFog(xx,yy,26,0.5);} } px=x;py=y; }
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);down=true;px=e.clientX;py=e.clientY;eraseFog(px,py,26,0.6);hideHint();});
+cv.addEventListener('pointermove',e=>{if(down)wipe(e.clientX,e.clientY);});
+cv.addEventListener('pointerup',()=>{down=false;px=0;py=0;});
+cv.addEventListener('pointercancel',()=>{down=false;px=0;py=0;});
+
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+document.getElementById('rain').onclick=e=>{rain=!rain;e.target.classList.toggle('on',rain);};
+document.getElementById('fog').onclick=()=>{resetFog();drops=[];};
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

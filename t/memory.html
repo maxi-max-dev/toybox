@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>翻翻乐 · Memory</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#eef4fb;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#4b5a6b;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:1px;text-shadow:0 1px 0 rgba(255,255,255,.7)}
+  .title span{display:block;font-size:12px;opacity:.6;margin-top:2px;font-weight:600}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;
+    background:rgba(255,255,255,.8);border:1px solid rgba(90,120,150,.2);padding:8px;border-radius:14px;backdrop-filter:blur(10px);box-shadow:0 8px 24px rgba(80,110,150,.18)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#fff;border:none;background:#6aa0e0;padding:9px 16px;border-radius:10px;cursor:pointer}
+  .bar button:active{transform:translateY(1px)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>翻翻乐</b><span>翻两张，配对就留住</span></div>
+<div class="bar"><button id="new">↻ 新一局</button></div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,COLS=4,ROWS=4,cw=0,ch=0,gap=0,ox=0,oy=0;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  const bw=Math.min(W*0.92,H*0.72,480); gap=bw*0.03; cw=(bw-gap*(COLS-1))/COLS; ch=cw*1.28;
+  const bh=ch*ROWS+gap*(ROWS-1); ox=(W-bw)/2; oy=(H-bh)/2+14;
+}
+window.addEventListener('resize',resize); resize();
+
+const EMO=['🍎','🍊','🍋','🍉','🍇','🍓','🥝','🍑'];
+const BACKS=['#ff9ec2','#ffcf8f','#a8e6a0','#8fd0ff','#c3b6ff','#ffb3d9','#9fe6d6','#ffd36b'];
+let cards, first, lock, resolveT, mismatch, moves, matched, t0, won, t=0;
+function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]];} return a; }
+function init(){
+  let deck=[]; for(let i=0;i<8;i++){ deck.push({e:EMO[i],bk:BACKS[i]},{e:EMO[i],bk:BACKS[i]}); } shuffle(deck);
+  cards=[]; let k=0; for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){ const d=deck[k++]; cards.push({r,c,e:d.e,bk:d.bk,up:false,matched:false,anim:1}); }
+  first=null;lock=false;mismatch=false;moves=0;matched=0;won=false;t0=t;
+}
+resize(); init();
+
+function cardXY(card){ return [ox+card.c*(cw+gap), oy+card.r*(ch+gap)]; }
+function flip(card,up){ if(card.up===up)return; card.up=up; card.anim=0; }
+function pick(card){
+  if(lock||card.matched||card.up)return;
+  flip(card,true);
+  if(!first){ first=card; }
+  else { moves++; lock=true; if(first.e===card.e){ // match
+      first.matched=true; card.matched=true; matched++; const a=first; first=null; lock=false;
+      if(matched===8){ won=true; }
+    } else { mismatch=true; resolveT=t+0.85; card._second=true; card2=card; }
+  }
+}
+let card2=null;
+function update(dt){
+  for(const c of cards){ if(c.anim<1) c.anim=Math.min(1,c.anim+dt/0.22); }
+  if(mismatch && t>=resolveT){ flip(first,false); flip(card2,false); first=null; card2=null; mismatch=false; lock=false; }
+}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function draw(){
+  ctx.fillStyle='#eef4fb'; ctx.fillRect(0,0,W,H);
+  // HUD
+  const tm=won? tm_final : (t-t0); if(!won) tm_final=t-t0;
+  ctx.fillStyle='#5a6b7d'; ctx.font='800 22px -apple-system,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+  ctx.fillText('步数 '+moves+'    时间 '+((won?tm_final:t-t0)|0)+'s', W/2, oy-18);
+  ctx.textAlign='left';
+  for(const c of cards){
+    const [x,y]=cardXY(c);
+    const showFront = c.anim<0.5 ? !c.up : c.up; // mid-flip swap
+    const sx=Math.abs(1-2*c.anim); // 1..0..1
+    const w=cw*sx, cx=x+cw/2;
+    ctx.save();
+    if(c.matched){ ctx.globalAlpha=0.55; }
+    ctx.translate(cx,0); ctx.scale(w/cw||0.001,1); ctx.translate(-cx,0);
+    if(showFront){ rr(x,y,cw,ch,12); ctx.fillStyle='#ffffff'; ctx.fill(); ctx.strokeStyle=c.matched?'#5fd18b':'#dfe6ee';ctx.lineWidth=c.matched?3:2;ctx.stroke();
+      ctx.globalAlpha=c.matched?0.7:1; ctx.font=Math.floor(cw*0.5)+'px sans-serif'; ctx.textAlign='center';ctx.textBaseline='middle'; ctx.fillText(c.e, x+cw/2, y+ch/2+2);
+    } else { rr(x,y,cw,ch,12); const g=ctx.createLinearGradient(x,y,x,y+ch); g.addColorStop(0,c.bk); g.addColorStop(1,shade(c.bk,-22)); ctx.fillStyle=g; ctx.fill();
+      ctx.fillStyle='rgba(255,255,255,.55)'; ctx.font='800 '+Math.floor(cw*0.42)+'px -apple-system,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('?', x+cw/2, y+ch/2+2);
+    }
+    ctx.restore();
+  }
+  ctx.textAlign='left';ctx.textBaseline='alphabetic';
+  if(won){ ctx.fillStyle='rgba(238,244,251,0.82)'; ctx.fillRect(0,0,W,H); ctx.textAlign='center'; ctx.fillStyle='#5fd18b'; ctx.font='800 42px -apple-system,sans-serif';
+    ctx.fillText('全配对啦！🎉', W/2, H*0.42); ctx.fillStyle='#5a6b7d'; ctx.font='700 20px -apple-system,sans-serif';
+    ctx.fillText(moves+' 步 · '+((tm_final)|0)+' 秒', W/2, H*0.42+40); ctx.font='800 22px -apple-system,sans-serif';ctx.fillStyle='#6aa0e0';ctx.fillText('点新一局再来', W/2, H*0.42+86); ctx.textAlign='left'; }
+}
+let tm_final=0;
+function shade(hex,amt){const n=parseInt(hex.slice(1),16);let r=(n>>16)+amt,g=((n>>8)&255)+amt,b=(n&255)+amt;r=Math.max(0,Math.min(255,r));g=Math.max(0,Math.min(255,g));b=Math.max(0,Math.min(255,b));return 'rgb('+r+','+g+','+b+')';}
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.05); last=now; t+=dt; update(dt); draw(); requestAnimationFrame(frame); }
+
+cv.addEventListener('pointerdown',e=>{e.preventDefault(); if(won){return;} const mx=e.clientX,my=e.clientY;
+  for(const c of cards){ const [x,y]=cardXY(c); if(mx>=x&&mx<=x+cw&&my>=y&&my<=y+ch){ pick(c); break; } } });
+document.getElementById('new').onclick=()=>init();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>磁力铁屑 · Magnet</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#f4efe4;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#4a4438;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:1px;text-shadow:0 1px 0 rgba(255,255,255,.7)}
+  .title span{display:block;font-size:12px;opacity:.6;margin-top:2px;font-weight:600}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;
+    background:rgba(255,255,255,.8);border:1px solid rgba(120,110,90,.2);padding:8px;border-radius:15px;backdrop-filter:blur(10px);box-shadow:0 8px 24px rgba(120,100,70,.18)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#4a4438;border:none;background:#fff;padding:9px 13px;border-radius:11px;cursor:pointer;box-shadow:0 2px 0 rgba(120,100,70,.16)}
+  .bar button:active{transform:translateY(1px)}
+  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;
+    opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>磁力铁屑</b><span>拖动磁铁，看铁屑顺着磁场排队</span></div>
+<div class="hint" id="hint">🧲 拖动下面的磁铁试试</div>
+<div class="bar">
+  <button id="flip">🔄 翻转右磁极</button>
+  <button id="rot">↻ 转一下</button>
+  <button id="reset">✥ 复位</button>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,fil=[],magnets=[];
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  const n=Math.round(W*H/150);
+  fil=[]; for(let i=0;i<n;i++) fil.push({x:Math.random()*W,y:Math.random()*H});
+  if(!magnets.length) resetMagnets();
+}
+window.addEventListener('resize',resize);
+function resetMagnets(){ magnets=[
+  {x:W*0.36,y:H*0.5,ang:0,len:70,q:9000,flip:1},
+  {x:W*0.64,y:H*0.5,ang:0,len:70,q:9000,flip:-1}
+]; }
+resize();
+
+function poles(){ const P=[];
+  for(const m of magnets){ const dx=Math.cos(m.ang)*m.len, dy=Math.sin(m.ang)*m.len;
+    P.push({x:m.x+dx,y:m.y+dy,q:m.q*m.flip}); P.push({x:m.x-dx,y:m.y-dy,q:-m.q*m.flip}); }
+  return P; }
+function field(px,py,P){ let fx=0,fy=0;
+  for(const p of P){ const dx=px-p.x, dy=py-p.y; let r2=dx*dx+dy*dy+80; const inv=p.q/(r2*Math.sqrt(r2)); fx+=dx*inv; fy+=dy*inv; }
+  return [fx,fy]; }
+
+function draw(){
+  ctx.fillStyle='#f4efe4'; ctx.fillRect(0,0,W,H);
+  // subtle paper texture dots
+  const P=poles();
+  ctx.strokeStyle='#33383f'; ctx.lineCap='round';
+  for(const f of fil){
+    const [fx,fy]=field(f.x,f.y,P); const mag=Math.hypot(fx,fy);
+    const a=mag/(mag+0.9);
+    if(a<0.03)continue;
+    const ang=Math.atan2(fy,fx); const L=3.2+a*5.5;
+    ctx.globalAlpha=Math.min(0.85,a); ctx.lineWidth=0.8+a*1.2;
+    const cx=Math.cos(ang)*L, cy=Math.sin(ang)*L;
+    ctx.beginPath(); ctx.moveTo(f.x-cx,f.y-cy); ctx.lineTo(f.x+cx,f.y+cy); ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+  // magnets
+  for(const m of magnets){
+    ctx.save(); ctx.translate(m.x,m.y); ctx.rotate(m.ang);
+    const w=m.len*2, h=26;
+    ctx.shadowColor='rgba(80,60,40,.3)'; ctx.shadowBlur=10; ctx.shadowOffsetY=3;
+    // N half (this end sign depends on flip)
+    const nColor=m.flip>0?'#e8433a':'#3a6ff0', sColor=m.flip>0?'#3a6ff0':'#e8433a';
+    const nLab=m.flip>0?'N':'S', sLab=m.flip>0?'S':'N';
+    roundRectPath(-w/2,-h/2,w/2,h,7,true,false); ctx.fillStyle=sColor; ctx.fill();
+    ctx.shadowBlur=0;
+    roundRectPath(0,-h/2,w/2,h,7,false,true); ctx.fillStyle=nColor; ctx.fill();
+    ctx.fillStyle='#fff'; ctx.font='800 15px -apple-system,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(sLab,-w/4,0); ctx.fillText(nLab,w/4,0);
+    ctx.restore();
+  }
+}
+function roundRectPath(x,y,w,h,r,leftR,rightR){
+  ctx.beginPath();
+  ctx.moveTo(x+(leftR?r:0),y);
+  ctx.lineTo(x+w-(rightR?r:0),y);
+  if(rightR)ctx.arcTo(x+w,y,x+w,y+h,r); else ctx.lineTo(x+w,y);
+  ctx.lineTo(x+w,y+h-(rightR?r:0));
+  if(rightR)ctx.arcTo(x+w,y+h,x,y+h,r); else ctx.lineTo(x+w,y+h);
+  ctx.lineTo(x+(leftR?r:0),y+h);
+  if(leftR)ctx.arcTo(x,y+h,x,y,r); else ctx.lineTo(x,y+h);
+  ctx.lineTo(x,y+(leftR?r:0));
+  if(leftR)ctx.arcTo(x,y,x+w,y,r); else ctx.lineTo(x,y);
+  ctx.closePath();
+}
+let last=performance.now();
+function frame(now){ last=now; draw(); requestAnimationFrame(frame); }
+
+// ---- input ----
+let drag=-1, offx=0, offy=0;
+function pick(x,y){ for(let i=0;i<magnets.length;i++){ const m=magnets[i]; const dx=x-m.x,dy=y-m.y; if(Math.hypot(dx,dy)<m.len+30) return i; } return -1; }
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId); const i=pick(e.clientX,e.clientY); if(i>=0){drag=i;offx=e.clientX-magnets[i].x;offy=e.clientY-magnets[i].y;hideHint();}});
+cv.addEventListener('pointermove',e=>{ if(drag>=0){ magnets[drag].x=e.clientX-offx; magnets[drag].y=e.clientY-offy; }});
+cv.addEventListener('pointerup',()=>drag=-1);
+cv.addEventListener('pointercancel',()=>drag=-1);
+
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+document.getElementById('flip').onclick=()=>{ magnets[1].flip*=-1; };
+document.getElementById('rot').onclick=()=>{ for(const m of magnets) m.ang+=Math.PI/6; };
+document.getElementById('reset').onclick=()=>{ resetMagnets(); };
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

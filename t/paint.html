@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>调色盘 · Paint</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#f7f4ee;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#5a5248;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:1px;text-shadow:0 1px 0 rgba(255,255,255,.7)}
+  .title span{display:block;font-size:12px;opacity:.6;margin-top:2px;font-weight:600}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;align-items:center;
+    background:rgba(255,255,255,.82);border:1px solid rgba(150,140,120,.2);padding:8px 10px;border-radius:16px;backdrop-filter:blur(8px);box-shadow:0 8px 24px rgba(150,130,90,.18)}
+  .bar .dot{width:38px;height:38px;border-radius:50%;cursor:pointer;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.15)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#5a5248;border:none;background:#eee;padding:9px 12px;border-radius:11px;cursor:pointer;margin-left:4px}
+  .hint{position:fixed;left:50%;bottom:66px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>调色盘</b><span>点原色加一坨，拖到一起融合</span></div>
+<div class="hint" id="hint">🎨 点下面的颜色，拖两坨到一起</div>
+<div class="bar" id="bar"></div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize',resize); resize();
+
+// RYB -> RGB trilinear (art-class color mixing)
+const CORN={'000':[1,1,1],'001':[.16,.37,.6],'010':[1,1,0],'011':[0,.66,.2],'100':[1,0,0],'101':[.5,0,.5],'110':[1,.5,0],'111':[.15,.08,.02]};
+function lerp(a,b,t){return a+(b-a)*t;}
+function rybToRgb(r,y,b){ const o=[0,0,0];
+  for(let ch=0;ch<3;ch++){ const c00=lerp(CORN['000'][ch],CORN['100'][ch],r),c01=lerp(CORN['001'][ch],CORN['101'][ch],r),c10=lerp(CORN['010'][ch],CORN['110'][ch],r),c11=lerp(CORN['011'][ch],CORN['111'][ch],r);
+    const c0=lerp(c00,c10,y),c1=lerp(c01,c11,y); o[ch]=Math.round(lerp(c0,c1,b)*255); }
+  return 'rgb('+o[0]+','+o[1]+','+o[2]+')'; }
+function shade(rgb,amt){ const m=rgb.match(/\d+/g).map(Number); return 'rgb('+m.map(v=>Math.max(0,Math.min(255,v+amt))).join(',')+')'; }
+
+const PAL=[['红',[1,0,0]],['黄',[0,1,0]],['蓝',[0,0,1]],['白',[0,0,0]],['黑',[1,1,1]]];
+let blobs=[];
+function addBlob(ryb,x,y){ blobs.push({x:x||W*(0.3+Math.random()*0.4),y:y||H*(0.35+Math.random()*0.25),r:34,ryb:ryb.slice(),vol:1}); if(blobs.length>30)blobs.shift(); }
+resize();
+
+function draw(){
+  ctx.fillStyle='#f7f4ee'; ctx.fillRect(0,0,W,H);
+  // palette dish outline
+  for(const b of blobs){
+    const rgb=rybToRgb(b.ryb[0],b.ryb[1],b.ryb[2]);
+    ctx.save();
+    ctx.shadowColor='rgba(80,60,30,.2)';ctx.shadowBlur=12;ctx.shadowOffsetY=4;
+    const g=ctx.createRadialGradient(b.x-b.r*0.3,b.y-b.r*0.35,b.r*0.2,b.x,b.y,b.r);
+    g.addColorStop(0,shade(rgb,45)); g.addColorStop(0.7,rgb); g.addColorStop(1,shade(rgb,-30));
+    ctx.fillStyle=g; ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,6.28);ctx.fill();
+    ctx.restore();
+    // gloss
+    ctx.fillStyle='rgba(255,255,255,.45)';ctx.beginPath();ctx.ellipse(b.x-b.r*0.32,b.y-b.r*0.38,b.r*0.26,b.r*0.16,-0.5,0,6.28);ctx.fill();
+  }
+  if(drag){ ctx.strokeStyle='rgba(120,110,90,.4)';ctx.lineWidth=2;ctx.setLineDash([4,4]);ctx.beginPath();ctx.arc(drag.x,drag.y,drag.r+6,0,6.28);ctx.stroke();ctx.setLineDash([]); }
+}
+let last=performance.now();
+function frame(now){ last=now; draw(); requestAnimationFrame(frame); }
+
+// merge check
+function tryMerge(b){ for(const o of blobs){ if(o===b)continue; const d=Math.hypot(o.x-b.x,o.y-b.y); if(d<(o.r+b.r)*0.6){
+  const v1=b.vol,v2=o.vol,vt=v1+v2; for(let i=0;i<3;i++)o.ryb[i]=(b.ryb[i]*v1+o.ryb[i]*v2)/vt; o.vol=vt; o.r=Math.min(70,Math.sqrt(o.r*o.r+b.r*b.r));
+  blobs.splice(blobs.indexOf(b),1); o.x=(b.x*v1+o.x*v2)/vt; o.y=(b.y*v1+o.y*v2)/vt; return true; } } return false; }
+
+let drag=null,offx=0,offy=0;
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId); for(let i=blobs.length-1;i>=0;i--){ const b=blobs[i]; if((e.clientX-b.x)**2+(e.clientY-b.y)**2<b.r*b.r){ drag=b; offx=e.clientX-b.x;offy=e.clientY-b.y; blobs.splice(i,1);blobs.push(b); break; } } hideHint(); });
+cv.addEventListener('pointermove',e=>{ if(drag){ drag.x=e.clientX-offx; drag.y=e.clientY-offy; } });
+cv.addEventListener('pointerup',()=>{ if(drag){ tryMerge(drag); drag=null; } });
+cv.addEventListener('pointercancel',()=>drag=null);
+
+const bar=document.getElementById('bar');
+PAL.forEach(p=>{ const d=document.createElement('div'); d.className='dot'; d.style.background=rybToRgb(p[1][0],p[1][1],p[1][2]); d.title=p[0];
+  d.onclick=()=>{ addBlob(p[1]); hideHint(); }; bar.appendChild(d); });
+const clr=document.createElement('button'); clr.textContent='🧽 清空'; clr.onclick=()=>blobs=[]; bar.appendChild(clr);
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+// seed a couple
+addBlob([1,0,0],W*0.4,H*0.4); addBlob([0,1,0],W*0.6,H*0.45);
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>砸金蛋 · GoldenEgg</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#c62828;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#fff3d0;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:2px}
+  .title span{display:block;font-size:12px;opacity:.75;margin-top:2px;font-weight:600}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;
+    background:rgba(120,20,20,.5);border:1px solid rgba(255,220,140,.3);padding:8px 12px;border-radius:15px;backdrop-filter:blur(8px)}
+  .bar button{font:inherit;font-weight:800;font-size:14px;color:#a01818;border:none;background:linear-gradient(90deg,#ffe08a,#ffc24d);padding:10px 20px;border-radius:11px;cursor:pointer;box-shadow:0 3px 0 rgba(180,120,20,.5)}
+  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:14px;font-weight:700;opacity:.75;pointer-events:none;transition:opacity .6s;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>砸金蛋</b><span>拿锤子砸开金蛋抽大奖</span></div>
+<div class="hint" id="hint">🔨 点金蛋，一锤砸开</div>
+<div class="bar"><button id="reset">🥚 再来一批</button></div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  layout();
+}
+window.addEventListener('resize',resize);
+
+let actx=null,master=null;
+function initAudio(){ if(actx)return; try{actx=new(window.AudioContext||window.webkitAudioContext)();master=actx.createGain();master.gain.value=0.4;master.connect(actx.destination);
+  nb=actx.createBuffer(1,actx.sampleRate*0.2,actx.sampleRate);const d=nb.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;}catch(e){} }
+let nb=null;
+function crackSound(){ if(!actx)return;const t=actx.currentTime;const s=actx.createBufferSource();s.buffer=nb;const f=actx.createBiquadFilter();f.type='bandpass';f.frequency.value=2500;const g=actx.createGain();g.gain.setValueAtTime(0.4,t);g.gain.exponentialRampToValueAtTime(0.0001,t+0.15);s.connect(f);f.connect(g);g.connect(master);s.start(t);s.stop(t+0.16);
+  const o=actx.createOscillator();o.type='square';o.frequency.setValueAtTime(180,t);o.frequency.exponentialRampToValueAtTime(60,t+0.12);const g2=actx.createGain();g2.gain.setValueAtTime(0.35,t);g2.gain.exponentialRampToValueAtTime(0.0001,t+0.14);o.connect(g2);g2.connect(master);o.start(t);o.stop(t+0.15); }
+function win(){ if(!actx)return;[0,4,7,12].forEach((s,i)=>{const o=actx.createOscillator();o.type='triangle';o.frequency.value=523*Math.pow(2,s/12);const g=actx.createGain();const t=actx.currentTime+i*0.09;g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.3,t+0.02);g.gain.exponentialRampToValueAtTime(0.0001,t+0.4);o.connect(g);g.connect(master);o.start(t);o.stop(t+0.42);}); }
+
+const PRIZES=[['🧧','大红包!',1],['💰','金币 x88',1],['🎁','神秘大奖!',1],['⭐','幸运星',1],['😅','谢谢参与',0],['🍀','再来一次',0]];
+let eggs, shards=[], confetti=[], hammer, t=0;
+function layout(){ if(!eggs)return; const y=H*0.46; eggs.forEach((e,i)=>{ e.x=W*(0.5+(i-1)*0.26); e.y=y; e.r=Math.min(W*0.12,H*0.14); }); }
+function reset(){ eggs=[]; for(let i=0;i<3;i++)eggs.push({x:0,y:0,r:50,state:'whole',prize:null,crackT:0,py:0}); layout(); shards=[];confetti=[];hammer=null; }
+resize(); reset();
+
+function smash(e){ if(e.state!=='whole'||hammer)return; initAudio(); if(actx&&actx.state==='suspended')actx.resume();
+  hammer={x:e.x,y:e.y,ang:-1.2,egg:e,t:0}; hideHint(); }
+function doCrack(e){ e.state='open'; e.prize=PRIZES[(Math.random()*PRIZES.length)|0]; crackSound();
+  for(let i=0;i<18;i++){const a=Math.random()*6.28,s=100+Math.random()*260;shards.push({x:e.x,y:e.y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-120,life:0.9,rot:Math.random()*6.28,rv:(Math.random()-.5)*12,r:5+Math.random()*8});}
+  if(e.prize[2]){ win(); for(let i=0;i<90;i++){const a=Math.random()*6.28,s=150+Math.random()*300;confetti.push({x:e.x,y:e.y-e.r,vx:Math.cos(a)*s,vy:Math.sin(a)*s-160,life:1.6,hue:(Math.random()*60)|0+ (Math.random()<0.5?0:200),rot:0,rv:(Math.random()-.5)*10});} }
+  e.py=0;
+}
+function step(dt){
+  if(hammer){ hammer.t+=dt; hammer.ang=-1.2+Math.min(1,hammer.t/0.18)*1.5; if(hammer.t>0.18&&hammer.egg.state==='whole'){ doCrack(hammer.egg); } if(hammer.t>0.4)hammer=null; }
+  for(const e of eggs){ if(e.state==='open'&&e.py<1)e.py+=dt*2.2; }
+  for(let i=shards.length-1;i>=0;i--){const s=shards[i];s.life-=dt;s.vy+=700*dt;s.x+=s.vx*dt;s.y+=s.vy*dt;s.rot+=s.rv*dt;if(s.life<=0)shards.splice(i,1);}
+  for(let i=confetti.length-1;i>=0;i--){const p=confetti[i];p.life-=dt;p.vy+=480*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.rot+=p.rv*dt;if(p.life<=0)confetti.splice(i,1);}
+}
+function egg(e){
+  ctx.save();ctx.translate(e.x,e.y);
+  // pedestal
+  ctx.fillStyle='#8a1414';ctx.beginPath();ctx.ellipse(0,e.r*1.05,e.r*0.9,e.r*0.22,0,0,6.28);ctx.fill();
+  if(e.state!=='open'){
+    const g=ctx.createRadialGradient(-e.r*0.3,-e.r*0.5,e.r*0.2,0,0,e.r*1.3);g.addColorStop(0,'#fff2b0');g.addColorStop(0.5,'#ffd24d');g.addColorStop(1,'#e0a020');
+    ctx.fillStyle=g;ctx.beginPath();ctx.ellipse(0,0,e.r*0.82,e.r,0,0,6.28);ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,.6)';ctx.beginPath();ctx.ellipse(-e.r*0.28,-e.r*0.4,e.r*0.2,e.r*0.32,-0.4,0,6.28);ctx.fill();
+    ctx.fillStyle='#c62828';ctx.font='700 '+Math.floor(e.r*0.5)+'px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('福',0,0);
+  } else {
+    // broken shell bottom
+    ctx.fillStyle='#e0a020';ctx.beginPath();ctx.moveTo(-e.r*0.82,e.r*0.1);ctx.lineTo(-e.r*0.5,e.r*0.9);ctx.lineTo(e.r*0.5,e.r*0.9);ctx.lineTo(e.r*0.82,e.r*0.1);
+    for(let k=-3;k<=3;k++)ctx.lineTo(e.r*0.82*k/3.5,e.r*0.1+(k%2?-8:8)); ctx.closePath();ctx.fill();
+    // prize rising
+    const py=e.py; ctx.globalAlpha=Math.min(1,py*1.5); ctx.font=Math.floor(e.r*0.9)+'px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(e.prize[0],0,-e.r*0.5-py*e.r*0.5);
+    ctx.globalAlpha=1;ctx.fillStyle=e.prize[2]?'#fff':'#ffd0a0';ctx.font='800 '+Math.floor(e.r*0.32)+'px -apple-system,sans-serif';ctx.fillText(e.prize[1],0,-e.r*1.4-py*e.r*0.5);
+  }
+  ctx.restore();
+}
+function draw(){
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#d32f2f');g.addColorStop(1,'#a01818');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  // radial spotlight
+  const sp=ctx.createRadialGradient(W/2,H*0.4,20,W/2,H*0.4,W*0.6);sp.addColorStop(0,'rgba(255,220,120,0.18)');sp.addColorStop(1,'rgba(255,220,120,0)');ctx.fillStyle=sp;ctx.fillRect(0,0,W,H);
+  for(const e of eggs)egg(e);
+  for(const s of shards){ctx.save();ctx.globalAlpha=Math.max(0,s.life/0.9);ctx.translate(s.x,s.y);ctx.rotate(s.rot);ctx.fillStyle='#ffce55';ctx.fillRect(-s.r/2,-s.r/2,s.r,s.r);ctx.restore();}
+  for(const p of confetti){ctx.save();ctx.globalAlpha=Math.max(0,p.life/1.6);ctx.translate(p.x,p.y);ctx.rotate(p.rot);ctx.fillStyle='hsl('+p.hue+',90%,60%)';ctx.fillRect(-4,-4,8,8);ctx.restore();}
+  // hammer
+  if(hammer){ ctx.save();ctx.translate(hammer.x+hammer.egg.r*0.9,hammer.y-hammer.egg.r*1.3);ctx.rotate(hammer.ang);
+    ctx.fillStyle='#7a4a28';ctx.fillRect(-4,0,8,60);ctx.fillStyle='#9aa4ad';ctx.beginPath();ctx.roundRect?ctx.roundRect(-26,-16,52,26,6):ctx.rect(-26,-16,52,26);ctx.fill();ctx.fillStyle='#c0cad4';ctx.fillRect(-26,-16,14,26);ctx.restore(); }
+}
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.033); last=now; t+=dt; step(dt); draw(); requestAnimationFrame(frame); }
+
+cv.addEventListener('pointerdown',e=>{e.preventDefault(); for(const g of eggs){ if((e.clientX-g.x)**2+(e.clientY-g.y)**2<(g.r*1.1)**2){ smash(g); break; } }});
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+document.getElementById('reset').onclick=()=>reset();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

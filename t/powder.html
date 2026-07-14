@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>落沙 · Powder</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#dce8f0;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#3c4652;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0;image-rendering:pixelated}
+  .title{position:fixed;top:14px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:2px;text-shadow:0 1px 0 rgba(255,255,255,.7)}
+  .title span{display:block;font-size:12px;opacity:.62;margin-top:2px;font-weight:600}
+  .bar{position:fixed;left:50%;bottom:15px;transform:translateX(-50%);z-index:6;
+    display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:97vw;
+    background:rgba(255,255,255,.8);border:1px solid rgba(90,110,130,.2);
+    padding:7px;border-radius:15px;backdrop-filter:blur(10px);box-shadow:0 8px 26px rgba(70,90,120,.2)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#3c4652;border:2px solid transparent;
+    background:#fff;padding:8px 12px;border-radius:10px;cursor:pointer;display:flex;align-items:center;gap:6px;
+    box-shadow:0 2px 0 rgba(70,90,120,.14);transition:transform .07s}
+  .bar button:active{transform:translateY(1px)}
+  .bar button .dot{width:13px;height:13px;border-radius:4px;display:inline-block}
+  .bar button.sel{border-color:#3c4652;box-shadow:0 0 0 2px rgba(60,70,82,.15),0 2px 0 rgba(70,90,120,.14)}
+  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;
+    opacity:.55;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>落沙</b><span>选材料，在屏幕上画一画</span></div>
+<div class="hint" id="hint">🖐️ 按住画点沙子，看它往下堆</div>
+<div class="bar" id="bar"></div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,gw=0,gh=0,grid,ttl,moved,img,oc,octx;
+const CELL=4; // display px per cell (approx, canvas is grid-sized then CSS-scaled)
+const EMPTY=0,SAND=1,WATER=2,STONE=3,PLANT=4,FIRE=5,SEED=6;
+
+const MAT=[
+  {id:SAND,name:'沙',col:'#e4c274'},
+  {id:WATER,name:'水',col:'#49a6e8'},
+  {id:STONE,name:'石',col:'#8b909b'},
+  {id:SEED,name:'苗',col:'#54b64f'},
+  {id:FIRE,name:'火',col:'#ff6a2c'},
+  {id:EMPTY,name:'橡皮',col:'#eef3f7'},
+];
+let cur=SAND, brush=3;
+
+function resize(){
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  gw=Math.max(80,Math.floor(W/CELL)); gh=Math.max(60,Math.floor(H/CELL));
+  const old=grid, ogw=cv.__gw||0, ogh=cv.__gh||0;
+  grid=new Uint8Array(gw*gh); ttl=new Uint8Array(gw*gh); moved=new Uint8Array(gw*gh);
+  cv.width=gw; cv.height=gh; cv.style.width=W+'px'; cv.style.height=H+'px';
+  oc=cv; octx=ctx; img=ctx.createImageData(gw,gh);
+  cv.__gw=gw; cv.__gh=gh;
+  if(old && ogw>0){ // preserve by nearest copy
+    for(let y=0;y<gh;y++)for(let x=0;x<gw;x++){ const ox=(x*ogw/gw)|0, oy=(y*ogh/gh)|0; grid[y*gw+x]=old[oy*ogw+ox]||0; }
+  }
+}
+window.addEventListener('resize',resize); resize();
+
+const idx=(x,y)=>y*gw+x;
+function swap(a,b){ const t=grid[a];grid[a]=grid[b];grid[b]=t; const q=ttl[a];ttl[a]=ttl[b];ttl[b]=q; moved[a]=1;moved[b]=1; }
+
+function stepSim(){
+  moved.fill(0);
+  for(let y=gh-1;y>=0;y--){
+    const l2r=Math.random()<0.5;
+    for(let k=0;k<gw;k++){
+      const x=l2r?k:gw-1-k, i=idx(x,y);
+      if(moved[i])continue;
+      const t=grid[i];
+      if(t===EMPTY||t===STONE)continue;
+      if(t===SAND){
+        const b=i+gw;
+        if(y<gh-1 && (grid[b]===EMPTY||grid[b]===WATER)){swap(i,b);continue;}
+        const dirs=Math.random()<0.5?[-1,1]:[1,-1];
+        let done=false;
+        for(const dx of dirs){const nx=x+dx;if(nx<0||nx>=gw||y>=gh-1)continue;const ni=b+dx;if(grid[ni]===EMPTY||grid[ni]===WATER){swap(i,ni);done=true;break;}}
+        if(done)continue;
+      } else if(t===WATER){
+        const b=i+gw;
+        if(y<gh-1 && grid[b]===EMPTY){swap(i,b);continue;}
+        const dirs=Math.random()<0.5?[-1,1]:[1,-1];
+        let done=false;
+        for(const dx of dirs){const nx=x+dx;if(nx<0||nx>=gw||y>=gh-1)continue;const ni=b+dx;if(grid[ni]===EMPTY){swap(i,ni);done=true;break;}}
+        if(done)continue;
+        for(const dx of dirs){const nx=x+dx;if(nx<0||nx>=gw)continue;const ni=i+dx;if(grid[ni]===EMPTY){swap(i,ni);done=true;break;}}
+        if(done)continue;
+      } else if(t===SEED){ // sprout: falls until it lands, then becomes plant
+        const b=i+gw;
+        if(y<gh-1 && grid[b]===EMPTY){swap(i,b);continue;}
+        grid[i]=PLANT; ttl[i]=0;
+      } else if(t===PLANT){
+        // grow up/side into empty if near water, slowly
+        if(Math.random()<0.04){
+          const cand=[];
+          if(y>0 && grid[i-gw]===EMPTY)cand.push(i-gw);
+          if(x>0 && grid[i-1]===EMPTY)cand.push(i-1);
+          if(x<gw-1 && grid[i+1]===EMPTY)cand.push(i+1);
+          // only grow if a water neighbor feeds it
+          let wet=false;
+          if(x>0&&grid[i-1]===WATER)wet=true; if(x<gw-1&&grid[i+1]===WATER)wet=true;
+          if(y<gh-1&&grid[i+gw]===WATER)wet=true;
+          if(wet && cand.length){ const c=cand[(Math.random()*cand.length)|0]; grid[c]=PLANT; ttl[c]=0; moved[c]=1; }
+        }
+      } else if(t===FIRE){
+        if(ttl[i]<=1){ grid[i]=EMPTY; ttl[i]=0; continue; }
+        ttl[i]--;
+        // ignite neighbors (plant/seed)
+        const nb=[i-1,i+1,i-gw,i+gw];
+        for(const n of nb){ if(n<0||n>=gw*gh)continue; if((grid[n]===PLANT||grid[n]===SEED)&&Math.random()<0.35){grid[n]=FIRE;ttl[n]=18+((Math.random()*16)|0);}
+          if(grid[n]===WATER&&Math.random()<0.5){grid[i]=EMPTY;ttl[i]=0;} }
+        // rise
+        if(y>0 && grid[i-gw]===EMPTY && Math.random()<0.35){ grid[i-gw]=FIRE; ttl[i-gw]=5+((Math.random()*6)|0); moved[i-gw]=1; grid[i]=EMPTY; ttl[i]=0; }
+      }
+    }
+  }
+}
+
+function hash(i){ let h=(i*2654435761)>>>0; return ((h>>>16)&0xff)/255; }
+function render(){
+  const d=img.data;
+  for(let y=0;y<gh;y++){
+    // sky gradient for empty
+    const sy=y/gh; const sr=0xdc+(0xf2-0xdc)*sy, sg=0xe8+(0xf7-0xe8)*sy, sb=0xf0+(0xfb-0xf0)*sy;
+    for(let x=0;x<gw;x++){
+      const i=idx(x,y), t=grid[i], p=i*4; let r,g,b;
+      if(t===EMPTY){ r=sr;g=sg;b=sb; }
+      else if(t===SAND){ const v=(hash(i)-0.5)*36; r=228+v;g=194+v;b=116+v; }
+      else if(t===WATER){ const v=(hash(i)-0.5)*20; r=73;g=166+v;b=232; }
+      else if(t===STONE){ const v=(hash(i)-0.5)*34; r=139+v;g=144+v;b=155+v; }
+      else if(t===PLANT){ const v=(hash(i)-0.5)*40; r=84+v;g=182+v;b=79; }
+      else if(t===SEED){ r=110;g=200;b=90; }
+      else { // FIRE by ttl
+        const life=Math.min(1,ttl[i]/24); r=255; g=90+150*life; b=30+40*(1-life);
+      }
+      d[p]=r;d[p+1]=g;d[p+2]=b;d[p+3]=255;
+    }
+  }
+  octx.putImageData(img,0,0);
+}
+
+let last=performance.now();
+function frame(now){ last=now; stepSim(); render(); requestAnimationFrame(frame); }
+
+// ---- paint ----
+let painting=false;
+function paintAt(cx,cy){
+  const gx=Math.floor(cx/W*gw), gy=Math.floor(cy/H*gh);
+  for(let oy=-brush;oy<=brush;oy++)for(let ox=-brush;ox<=brush;ox++){
+    if(ox*ox+oy*oy>brush*brush)continue;
+    const x=gx+ox,y=gy+oy; if(x<0||x>=gw||y<0||y>=gh)continue;
+    const i=idx(x,y);
+    if(cur===EMPTY){ grid[i]=EMPTY;ttl[i]=0; }
+    else if(grid[i]===EMPTY || cur===FIRE){
+      if(cur===WATER && Math.random()<0.4)continue; // water a bit sparse
+      grid[i]=cur; if(cur===FIRE)ttl[i]=20+((Math.random()*16)|0);
+    }
+  }
+}
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);painting=true;paintAt(e.clientX,e.clientY);hideHint();});
+cv.addEventListener('pointermove',e=>{if(painting)paintAt(e.clientX,e.clientY);});
+cv.addEventListener('pointerup',()=>painting=false);
+cv.addEventListener('pointercancel',()=>painting=false);
+
+// ---- palette UI ----
+const bar=document.getElementById('bar');
+MAT.forEach(m=>{
+  const btn=document.createElement('button');
+  btn.innerHTML='<span class="dot" style="background:'+m.col+'"></span>'+m.name;
+  if(m.id===cur)btn.classList.add('sel');
+  btn.onclick=()=>{cur=m.id;[...bar.children].forEach(c=>c.classList.remove('sel'));btn.classList.add('sel');};
+  bar.appendChild(btn);
+});
+const clr=document.createElement('button'); clr.textContent='🧹 清空';
+clr.onclick=()=>{grid.fill(0);ttl.fill(0);}; bar.appendChild(clr);
+
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+
+// starter scene
+function seed(){
+  const gy=Math.floor(gh*0.72);
+  for(let x=Math.floor(gw*0.2);x<gw*0.8;x++){ grid[idx(x,gy)]=STONE; grid[idx(x,gy+1)]=STONE; }
+  for(let x=Math.floor(gw*0.5);x<gw*0.5+8;x++)for(let y=8;y<24;y++) grid[idx(x,y)]=SAND;
+  for(let x=Math.floor(gw*0.25);x<gw*0.35;x++)for(let y=gy-14;y<gy;y++) if(Math.random()<0.55) grid[idx(x,y)]=WATER;
+}
+seed();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

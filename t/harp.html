@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>光弦 · Harp</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#fbf4ea;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#5a4a3c;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:2px;text-shadow:0 1px 0 rgba(255,255,255,.7)}
+  .title span{display:block;font-size:12px;opacity:.6;margin-top:2px;font-weight:600}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;
+    display:flex;gap:8px;flex-wrap:wrap;justify-content:center;
+    background:rgba(255,255,255,.78);border:1px solid rgba(150,120,90,.2);
+    padding:8px;border-radius:16px;backdrop-filter:blur(10px);box-shadow:0 8px 26px rgba(150,110,70,.2)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#5a4a3c;border:none;background:#fff;
+    padding:9px 14px;border-radius:11px;cursor:pointer;box-shadow:0 2px 0 rgba(150,110,70,.16);transition:transform .07s}
+  .bar button:active{transform:translateY(1px)}
+  .bar button.on{background:linear-gradient(90deg,#ffa94d,#ff6ba0);color:#fff;box-shadow:0 2px 0 rgba(180,90,90,.28)}
+  .hint{position:fixed;left:50%;bottom:66px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;
+    opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>光弦</b><span>手指划过琴弦，滑出一串音</span></div>
+<div class="hint" id="hint">🎵 横着划过这些弦 🎵</div>
+<div class="bar">
+  <button id="auto" class="on">🌧️ 自动飘乐</button>
+  <button id="mute">🔊 有声</button>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,strings=[];
+// C major pentatonic degrees (semitones)
+const PENT=[0,2,4,7,9];
+function noteFreq(k){ const oct=Math.floor(k/5), deg=PENT[k%5]; return 220*Math.pow(2,(deg+12*oct)/12); }
+
+function build(){
+  strings=[];
+  const margin=44, span=W-2*margin;
+  const n=Math.max(8,Math.min(24,Math.floor(span/38)));
+  for(let i=0;i<n;i++){
+    const x=margin+span*(i/(n-1));
+    strings.push({x, freq:noteFreq(i), hue:(i/n*300), amp:0, t0:-9, wf:5+i*0.5});
+  }
+}
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  build();
+}
+window.addEventListener('resize',resize); resize();
+
+// ---- audio ----
+let actx=null, master=null, muted=false;
+function initAudio(){ if(actx)return; try{ actx=new (window.AudioContext||window.webkitAudioContext)();
+  master=actx.createGain(); master.gain.value=0.45; master.connect(actx.destination);}catch(e){actx=null;} }
+function playNote(freq,pan,vol){
+  if(!actx||muted)return; const t=actx.currentTime; vol=vol==null?1:vol;
+  const o=actx.createOscillator(); o.type='triangle'; o.frequency.value=freq;
+  const o2=actx.createOscillator(); o2.type='sine'; o2.frequency.value=freq*2.01;
+  const g=actx.createGain(); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(0.5*vol,t+0.008); g.gain.exponentialRampToValueAtTime(0.0006,t+1.7);
+  const g2=actx.createGain(); g2.gain.setValueAtTime(0,t); g2.gain.linearRampToValueAtTime(0.13*vol,t+0.006); g2.gain.exponentialRampToValueAtTime(0.0005,t+0.7);
+  o.connect(g); o2.connect(g2);
+  let out=master;
+  if(actx.createStereoPanner){ const pn=actx.createStereoPanner(); pn.pan.value=Math.max(-1,Math.min(1,pan)); g.connect(pn); g2.connect(pn); pn.connect(master); }
+  else { g.connect(master); g2.connect(master); }
+  o.start(t); o2.start(t); o.stop(t+1.8); o2.stop(t+0.8);
+}
+
+let now=0;
+function pluck(s,amp){ s.amp=amp; s.t0=now; playNote(s.freq,(s.x/W)*2-1, Math.min(1,amp/26)); }
+
+// ---- render ----
+function draw(){
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#fdf7ee'); g.addColorStop(1,'#f3e6da');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  ctx.lineCap='round';
+  for(const s of strings){
+    const age=now-s.t0; const a=s.amp*Math.exp(-age*3.2);
+    const bright=Math.min(1,a/16);
+    // string curve (bowed by wobble)
+    ctx.beginPath();
+    const steps=18;
+    for(let k=0;k<=steps;k++){
+      const y=H*0.06 + (H*0.82)*(k/steps);
+      const env=Math.sin(Math.PI*(k/steps));
+      const dx=a*env*Math.cos(age*s.wf*6.28);
+      const xx=s.x+dx;
+      if(k===0)ctx.moveTo(xx,y); else ctx.lineTo(xx,y);
+    }
+    ctx.lineWidth=2+bright*2.5;
+    const sat=45+bright*45, li=52-bright*8;
+    ctx.strokeStyle='hsl('+s.hue+','+sat+'%,'+li+'%)';
+    if(bright>0.02){ ctx.shadowColor='hsla('+s.hue+',90%,60%,'+(0.6*bright)+')'; ctx.shadowBlur=14*bright; }
+    ctx.stroke();
+    ctx.shadowBlur=0;
+    // anchor dots
+    ctx.fillStyle='hsl('+s.hue+',40%,45%)';
+    ctx.beginPath(); ctx.arc(s.x,H*0.06,3,0,6.28); ctx.fill();
+    ctx.beginPath(); ctx.arc(s.x,H*0.88,3,0,6.28); ctx.fill();
+    // pluck halo at middle
+    if(bright>0.05){
+      const my=H*0.47;
+      ctx.strokeStyle='hsla('+s.hue+',90%,60%,'+(bright*0.5)+')';
+      ctx.lineWidth=2; ctx.beginPath(); ctx.arc(s.x,my,10+ (1-bright)*40*(age),0,6.28); ctx.stroke();
+    }
+  }
+}
+
+// ---- input ----
+let prevX=null, down=false, AUTO=true, lastAuto=0, autoNext=0;
+function crossPluck(x){
+  if(prevX!=null){
+    const lo=Math.min(prevX,x), hi=Math.max(prevX,x);
+    for(const s of strings){ if(s.x>=lo && s.x<=hi){ if(now-s.t0>0.06) pluck(s, 16+Math.random()*8); } }
+  }
+  prevX=x;
+}
+function onDown(x,y){ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); down=true; prevX=null; crossPluck(x); hideHint(); }
+function onMove(x,y){ if(down) crossPluck(x); }
+function onUp(){ down=false; prevX=null; }
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);onDown(e.clientX,e.clientY);});
+cv.addEventListener('pointermove',e=>onMove(e.clientX,e.clientY));
+cv.addEventListener('pointerup',onUp);
+cv.addEventListener('pointercancel',onUp);
+
+// ---- loop ----
+let last=performance.now();
+function frame(tms){
+  const dt=Math.min((tms-last)/1000,0.05); last=tms; now+=dt;
+  if(AUTO && now>autoNext){ autoNext=now+0.35+Math.random()*0.7; const s=strings[(Math.random()*strings.length)|0]; if(s) pluck(s,9+Math.random()*6); }
+  draw(); requestAnimationFrame(frame);
+}
+
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+document.getElementById('auto').onclick=e=>{AUTO=!AUTO;e.target.classList.toggle('on',AUTO);};
+document.getElementById('mute').onclick=e=>{muted=!muted;e.target.textContent=muted?'🔇 静音':'🔊 有声';};
+
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

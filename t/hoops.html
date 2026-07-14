@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>投篮 · Hoops</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#f6ede0;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#5a4a3a;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:1px;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+  .title span{display:block;font-size:12px;opacity:.6;margin-top:2px;font-weight:600}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>投篮</b><span>把球往后拉，松手投出</span></div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,groundY=0;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  groundY=H*0.9; placeHoop(); resetBall();
+}
+window.addEventListener('resize',resize);
+
+let actx=null,master=null;
+function initAudio(){ if(actx)return; try{actx=new(window.AudioContext||window.webkitAudioContext)();master=actx.createGain();master.gain.value=0.5;master.connect(actx.destination);}catch(e){} }
+function swish(){ if(!actx)return;const t=actx.currentTime;const o=actx.createOscillator();o.type='sine';o.frequency.setValueAtTime(900,t);o.frequency.exponentialRampToValueAtTime(1500,t+0.12);const g=actx.createGain();g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.3,t+0.02);g.gain.exponentialRampToValueAtTime(0.0001,t+0.25);const bp=actx.createBiquadFilter();bp.type='bandpass';bp.frequency.value=2000;o.connect(bp);bp.connect(g);g.connect(master);o.start(t);o.stop(t+0.28);}
+function bonk(){ if(!actx)return;const t=actx.currentTime;const o=actx.createOscillator();o.type='square';o.frequency.setValueAtTime(180,t);o.frequency.exponentialRampToValueAtTime(90,t+0.1);const g=actx.createGain();g.gain.setValueAtTime(0.25,t);g.gain.exponentialRampToValueAtTime(0.0001,t+0.12);o.connect(g);g.connect(master);o.start(t);o.stop(t+0.14);}
+
+let hoop, ball, score=0, best=0, streak=0, msg=null;
+function placeHoop(){ hoop={x:W*0.72,y:H*0.32,rimW:Math.min(88,W*0.13),vx:0}; }
+function resetBall(){ ball={x:W*0.24,y:groundY-70,r:Math.min(26,W*0.035),vx:0,vy:0,flying:false,scored:false,py:0,spin:0}; }
+resize();
+
+let aiming=false,ax=0,ay=0;
+function launch(vx,vy){ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); ball.vx=vx;ball.vy=vy;ball.flying=true;ball.scored=false;ball.py=ball.y; }
+
+function rimPts(){ return [[hoop.x-hoop.rimW/2,hoop.y],[hoop.x+hoop.rimW/2,hoop.y]]; }
+function update(dt){
+  // hoop drifts a little for challenge once you score a few
+  if(score>=3){ hoop.x+=hoop.vx*dt; if(hoop.x<W*0.5){hoop.x=W*0.5;hoop.vx=Math.abs(hoop.vx);} if(hoop.x>W*0.82){hoop.x=W*0.82;hoop.vx=-Math.abs(hoop.vx);} if(hoop.vx===0)hoop.vx=40; }
+  if(!ball.flying)return;
+  ball.py=ball.y; ball.vy+=1500*dt; ball.vx*=0.999; ball.x+=ball.vx*dt; ball.y+=ball.vy*dt; ball.spin+=ball.vx*dt*0.02;
+  // rim collisions
+  for(const [rx,ry] of rimPts()){ const dx=ball.x-rx,dy=ball.y-ry,d=Math.hypot(dx,dy); if(d<ball.r+4){ const nx=dx/d,ny=dy/d; ball.x=rx+nx*(ball.r+4);ball.y=ry+ny*(ball.r+4); const vn=ball.vx*nx+ball.vy*ny; ball.vx-=1.5*vn*nx;ball.vy-=1.5*vn*ny; ball.vx*=0.7;ball.vy*=0.7; bonk(); } }
+  // backboard (right of rim)
+  const bbx=hoop.x+hoop.rimW/2+8, bbTop=hoop.y-70, bbBot=hoop.y+6;
+  if(ball.x+ball.r>bbx && ball.px<bbx && ball.y>bbTop && ball.y<bbBot && ball.vx>0){ ball.x=bbx-ball.r; ball.vx*=-0.6; bonk(); }
+  ball.px=ball.x;
+  // score: crossing rim plane downward, between rim, not already scored
+  if(!ball.scored && ball.py<hoop.y && ball.y>=hoop.y && ball.vy>0 && ball.x>hoop.x-hoop.rimW/2+ball.r*0.3 && ball.x<hoop.x+hoop.rimW/2-ball.r*0.3){
+    ball.scored=true; score++; streak++; best=Math.max(best,score); swish(); msg={txt: streak>=3?('连中 '+streak+'！'):'空心 +1', t:0, good:true};
+  }
+  // off screen -> new ball
+  if(ball.y>H+60 || ball.x<-60 || ball.x>W+60){ if(!ball.scored){ streak=0; } resetBall(); }
+}
+function drawBall(x,y,r,spin){
+  ctx.save();ctx.translate(x,y);ctx.rotate(spin);
+  const g=ctx.createRadialGradient(-r*0.3,-r*0.3,r*0.2,0,0,r);g.addColorStop(0,'#ff9d4d');g.addColorStop(1,'#e8722a');
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,r,0,6.28);ctx.fill();
+  ctx.strokeStyle='rgba(90,40,10,.7)';ctx.lineWidth=1.6;
+  ctx.beginPath();ctx.moveTo(-r,0);ctx.lineTo(r,0);ctx.moveTo(0,-r);ctx.lineTo(0,r);ctx.stroke();
+  ctx.beginPath();ctx.arc(0,0,r,-0.5,0.5);ctx.stroke();ctx.beginPath();ctx.arc(0,0,r,Math.PI-0.5,Math.PI+0.5);ctx.stroke();
+  ctx.restore();
+}
+function draw(){
+  const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#bfe3f2');g.addColorStop(0.6,'#e8f2f6');g.addColorStop(0.6,'#e7cfa6');g.addColorStop(1,'#d9b884');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle='rgba(150,110,60,.3)';ctx.beginPath();ctx.moveTo(0,groundY);ctx.lineTo(W,groundY);ctx.stroke();
+  // pole + backboard
+  ctx.strokeStyle='#9aa4ad';ctx.lineWidth=6;ctx.beginPath();ctx.moveTo(hoop.x+hoop.rimW/2+30,hoop.y-70);ctx.lineTo(hoop.x+hoop.rimW/2+30,groundY);ctx.stroke();
+  ctx.fillStyle='#fdfdfd';ctx.strokeStyle='#c9ccd2';ctx.lineWidth=3;
+  ctx.beginPath();ctx.rect(hoop.x+hoop.rimW/2+8,hoop.y-70,20,76);ctx.fill();ctx.stroke();
+  ctx.strokeStyle='#ff6a3d';ctx.lineWidth=3;ctx.beginPath();ctx.rect(hoop.x+hoop.rimW/2+12,hoop.y-42,12,20);ctx.stroke();
+  // rim
+  ctx.strokeStyle='#ff5a2c';ctx.lineWidth=5;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(hoop.x-hoop.rimW/2,hoop.y);ctx.lineTo(hoop.x+hoop.rimW/2,hoop.y);ctx.stroke();
+  // net
+  ctx.strokeStyle='rgba(255,255,255,.85)';ctx.lineWidth=1.2;
+  const nseg=7; for(let i=0;i<=nseg;i++){ const fx=hoop.x-hoop.rimW/2+hoop.rimW*i/nseg; ctx.beginPath();ctx.moveTo(fx,hoop.y);ctx.lineTo(hoop.x-hoop.rimW*0.32+hoop.rimW*0.64*i/nseg,hoop.y+40);ctx.stroke(); }
+  for(let r=1;r<=3;r++){ const yy=hoop.y+40*r/3, wf=hoop.rimW*(1-0.36*r/3); ctx.beginPath();ctx.moveTo(hoop.x-wf/2,yy);ctx.lineTo(hoop.x+wf/2,yy);ctx.stroke(); }
+  // aim trajectory
+  if(aiming){ let vx=(ball.x-ax)*4.2, vy=(ball.y-ay)*4.2; let sx=ball.x,sy=ball.y,svx=vx,svy=vy;
+    ctx.fillStyle='rgba(90,70,50,.5)'; for(let i=0;i<26;i++){ svy+=1500*0.03; sx+=svx*0.03;sy+=svy*0.03; if(i%2===0){ctx.beginPath();ctx.arc(sx,sy,2.5,0,6.28);ctx.fill();} }
+    ctx.strokeStyle='rgba(90,70,50,.4)';ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(ball.x,ball.y);ctx.lineTo(ax,ay);ctx.stroke();ctx.setLineDash([]);
+  }
+  drawBall(ball.x,ball.y,ball.r,ball.spin);
+  // HUD
+  ctx.fillStyle='#5a4a3a';ctx.font='800 30px -apple-system,sans-serif';ctx.textBaseline='alphabetic';
+  ctx.textAlign='center';ctx.fillText('得分 '+score,W/2,46);
+  ctx.textAlign='right';ctx.fillText('最佳 '+best,W-22,46);ctx.textAlign='left';
+  if(msg){ msg.t+=0.016; ctx.globalAlpha=Math.max(0,1-msg.t); ctx.fillStyle='#ff5a2c';ctx.font='800 34px -apple-system,sans-serif';ctx.textAlign='center';ctx.fillText(msg.txt,W/2,H*0.2);ctx.globalAlpha=1;ctx.textAlign='left'; if(msg.t>1)msg=null; }
+}
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.033); last=now; update(dt); draw(); requestAnimationFrame(frame); }
+
+// input
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId); if(ball.flying)return; const dx=e.clientX-ball.x,dy=e.clientY-ball.y; if(dx*dx+dy*dy<(ball.r*3)**2){ aiming=true;ax=e.clientX;ay=e.clientY; } });
+cv.addEventListener('pointermove',e=>{ if(aiming){ax=e.clientX;ay=e.clientY;} });
+cv.addEventListener('pointerup',e=>{ if(aiming){ aiming=false; const vx=(ball.x-ax)*4.2, vy=(ball.y-ay)*4.2; if(Math.hypot(vx,vy)>40) launch(vx,vy); } });
+cv.addEventListener('pointercancel',()=>aiming=false);
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

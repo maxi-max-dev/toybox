@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>篝火 · Campfire</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#070b18;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#ffd9a8;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:3px}
+  .title span{display:block;font-size:12px;opacity:.55;margin-top:3px;font-weight:600}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;
+    background:rgba(30,20,14,.5);border:1px solid rgba(255,180,100,.22);padding:8px 12px;border-radius:15px;backdrop-filter:blur(10px)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#ffd9a8;border:1px solid rgba(255,190,120,.25);background:rgba(255,255,255,.05);padding:8px 13px;border-radius:11px;cursor:pointer}
+  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>篝火</b><span>戳一下火会窜高，划一划扇风</span></div>
+<div class="hint" id="hint">🔥 戳戳篝火，或划一划扇风</div>
+<div class="bar"><button id="log">🪵 添柴</button></div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,cx=0,groundY=0,stars=[];
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  cx=W/2; groundY=H*0.78;
+  stars=[]; for(let i=0;i<80;i++) stars.push({x:Math.random()*W,y:Math.random()*groundY*0.8,r:Math.random()*1.1+0.2,p:Math.random()*6.28});
+}
+window.addEventListener('resize',resize); resize();
+
+let actx=null,master=null;
+function initAudio(){ if(actx)return; try{actx=new(window.AudioContext||window.webkitAudioContext)();master=actx.createGain();master.gain.value=0.3;master.connect(actx.destination);
+  nb=actx.createBuffer(1,actx.sampleRate*0.2,actx.sampleRate);const d=nb.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;}catch(e){} }
+let nb=null;
+function crackle(){ if(!actx||!nb)return;const t=actx.currentTime;const s=actx.createBufferSource();s.buffer=nb;const f=actx.createBiquadFilter();f.type='bandpass';f.frequency.value=1200+Math.random()*1500;const g=actx.createGain();g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.25,t+0.005);g.gain.exponentialRampToValueAtTime(0.0001,t+0.08);s.connect(f);f.connect(g);g.connect(master);s.start(t);s.stop(t+0.1);}
+
+let parts=[], embers=[], wind=0, fireSize=1, t=0, crackT=0;
+function spawn(n,boost){ for(let i=0;i<n;i++){ const sx=cx+(Math.random()-.5)*34*fireSize; parts.push({x:sx,y:groundY-4,vx:(Math.random()-.5)*20,vy:-(70+Math.random()*70)*(boost||1),life:1,mx:sx,r:10+Math.random()*10}); }
+  if(parts.length>420)parts.splice(0,60); }
+function ember(){ embers.push({x:cx+(Math.random()-.5)*26,y:groundY-10,vx:(Math.random()-.5)*30,vy:-(90+Math.random()*80),life:1,ph:Math.random()*6.28}); if(embers.length>90)embers.shift(); }
+function seed(){ parts=[];embers=[]; }
+resize(); seed();
+
+let pointer={x:0,y:0,on:false,px:0};
+function step(dt){
+  wind*=Math.pow(0.2,dt);
+  spawn(Math.round(6*fireSize), 1);
+  if(Math.random()<0.4)ember();
+  crackT-=dt; if(crackT<=0){ crackT=0.2+Math.random()*0.6; crackle(); }
+  fireSize+=(1-fireSize)*Math.min(1,dt*0.6);
+  for(let i=parts.length-1;i>=0;i--){ const p=parts[i]; p.life-=dt*(1.1+Math.random()*0.3);
+    p.vy-=40*dt; // buoyancy
+    p.vx+=(Math.sin((groundY-p.y)*0.04+t*3)*30 + wind*140)*dt; p.vx*=Math.pow(0.4,dt);
+    p.x+=p.vx*dt; p.y+=p.vy*dt; if(p.life<=0)parts.splice(i,1); }
+  for(let i=embers.length-1;i>=0;i--){ const e=embers[i]; e.life-=dt*0.5; e.vy-=30*dt; e.vx+=(Math.sin(e.ph+t*2)*40+wind*160)*dt; e.x+=e.vx*dt; e.y+=e.vy*dt; if(e.life<=0||e.y<0)embers.splice(i,1); }
+}
+function fcolor(f){ // f: 1 hot -> 0 smoke
+  if(f>0.75)return[255,245,190]; if(f>0.55)return[255,200,90]; if(f>0.35)return[255,120,40]; if(f>0.18)return[210,50,20]; return[70,40,45];
+}
+function draw(){
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  for(const s of stars){ const tw=0.5+0.5*Math.sin(t*2+s.p); ctx.fillStyle='rgba(220,230,255,'+(0.2+tw*0.4)+')'; ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,6.28);ctx.fill(); }
+  // warm ground glow
+  const gl=ctx.createRadialGradient(cx,groundY,10,cx,groundY,Math.min(W,H)*0.5*fireSize);
+  gl.addColorStop(0,'rgba(255,140,40,0.28)');gl.addColorStop(0.5,'rgba(200,80,20,0.10)');gl.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=gl; ctx.fillRect(0,0,W,H);
+  // ground
+  ctx.fillStyle='#0e1020'; ctx.fillRect(0,groundY+8,W,H-groundY);
+  // logs
+  ctx.save();ctx.translate(cx,groundY+6);
+  for(const a of [-0.5,0.5]){ ctx.save();ctx.rotate(a);ctx.fillStyle='#4a2f1c';ctx.beginPath();ctx.roundRect?ctx.roundRect(-46,-8,92,16,8):ctx.rect(-46,-8,92,16);ctx.fill();ctx.fillStyle='#6a4428';ctx.fillRect(-46,-8,10,16);ctx.restore(); }
+  // glowing embers on logs
+  ctx.fillStyle='rgba(255,120,40,.6)';ctx.beginPath();ctx.ellipse(0,0,30,7,0,0,6.28);ctx.fill();
+  ctx.restore();
+  // fire (additive)
+  ctx.globalCompositeOperation='lighter';
+  for(const p of parts){ const f=Math.max(0,p.life); const [r,g,b]=fcolor(f); const sz=p.r*(0.5+f*0.9)*fireSize;
+    const rg=ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,sz); rg.addColorStop(0,'rgba('+r+','+g+','+b+','+(0.5*f)+')'); rg.addColorStop(1,'rgba('+r+','+g+','+b+',0)');
+    ctx.fillStyle=rg; ctx.fillRect(p.x-sz,p.y-sz,sz*2,sz*2); }
+  for(const e of embers){ const a=Math.max(0,e.life); ctx.fillStyle='rgba(255,'+(160+Math.random()*60|0)+',60,'+a+')'; ctx.beginPath();ctx.arc(e.x,e.y,1.6,0,6.28);ctx.fill(); }
+  ctx.globalCompositeOperation='source-over';
+}
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.04); last=now; t+=dt; step(dt); draw(); requestAnimationFrame(frame); }
+
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);initAudio();if(actx&&actx.state==='suspended')actx.resume();pointer.on=true;pointer.px=e.clientX; fireSize=Math.min(2.2,fireSize+0.5); spawn(40,1.6); for(let i=0;i<12;i++)ember(); hideHint();});
+cv.addEventListener('pointermove',e=>{ if(pointer.on){ wind=Math.max(-1,Math.min(1,(e.clientX-pointer.px)*0.02)); pointer.px=e.clientX; } });
+cv.addEventListener('pointerup',()=>pointer.on=false);
+cv.addEventListener('pointercancel',()=>pointer.on=false);
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+document.getElementById('log').onclick=()=>{ fireSize=Math.min(2.4,fireSize+0.4); spawn(30,1.4); };
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>万花镜 · Kaleido</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#07050e;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#e8e2ff;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:2px}
+  .title span{display:block;font-size:12px;opacity:.55;margin-top:3px;font-weight:600;letter-spacing:.5px}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;
+    display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:96vw;
+    background:rgba(20,14,38,.62);border:1px solid rgba(150,120,255,.22);
+    padding:8px 12px;border-radius:16px;backdrop-filter:blur(12px);
+    box-shadow:0 10px 34px rgba(60,20,120,.35)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#e8e2ff;
+    border:1px solid rgba(160,130,255,.28);background:rgba(255,255,255,.05);
+    padding:8px 13px;border-radius:11px;cursor:pointer;transition:transform .08s,background .15s}
+  .bar button:hover{background:rgba(160,130,255,.22)}
+  .bar button:active{transform:translateY(1px)}
+  .bar button.on{background:linear-gradient(90deg,#7b5cff,#c05cff);border-color:transparent}
+  .sym{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;opacity:.9}
+  .sym input{width:108px;accent-color:#a97bff}
+  .sym b{min-width:22px;text-align:center;color:#d9c6ff}
+  .hint{position:fixed;left:50%;bottom:66px;transform:translateX(-50%);z-index:4;
+    font-size:13px;font-weight:600;opacity:.5;pointer-events:none;letter-spacing:.5px;
+    transition:opacity .6s;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>万花镜</b><span>动一动手指，画一朵会长的曼陀罗</span></div>
+<div class="hint" id="hint">✦ 在屏幕上划一划 ✦</div>
+<div class="bar">
+  <div class="sym">瓣 <input id="sym" type="range" min="3" max="16" value="8"><b id="symv">8</b></div>
+  <button id="mirror" class="on">🪞 镜像</button>
+  <button id="auto" class="on">🌀 自动</button>
+  <button id="clear">🧹 清空</button>
+  <button id="save">💾 存图</button>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,cx=0,cy=0,R=0;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  cx=W/2; cy=H/2; R=Math.min(W,H);
+  ctx.globalCompositeOperation='source-over';
+  ctx.fillStyle='#07050e'; ctx.fillRect(0,0,W,H);
+}
+window.addEventListener('resize',resize); resize();
+
+let SYM=8, MIRROR=true, AUTO=true;
+let hue=0;
+
+// mirrored stroke drawing (dihedral symmetry) with additive glow
+function drawSeg(x0,y0,x1,y1,h,w){
+  const ax0=x0-cx, ay0=y0-cy, ax1=x1-cx, ay1=y1-cy;
+  const step=Math.PI*2/SYM;
+  ctx.globalCompositeOperation='lighter';
+  ctx.lineCap='round';
+  const passes=[[w*2.4,0.10],[w,0.34],[w*0.4,0.95]];
+  for(let k=0;k<SYM;k++){
+    const c=Math.cos(k*step), s=Math.sin(k*step);
+    for(let m=0;m<(MIRROR?2:1);m++){
+      const my=m? -1:1;
+      const rx0=(ax0*my)*c-(ay0)* s + cx; // rotate (ax0*.., ay0..) but mirror on x-axis => (x, -y)
+      // apply mirror first (x, my*y) then rotate
+      const px0=ax0, py0=ay0*my, px1=ax1, py1=ay1*my;
+      const X0=px0*c-py0*s+cx, Y0=px0*s+py0*c+cy;
+      const X1=px1*c-py1*s+cx, Y1=px1*s+py1*c+cy;
+      for(const [lw,al] of passes){
+        ctx.lineWidth=lw;
+        ctx.strokeStyle='hsla('+h+',95%,'+(al>0.9?78:58)+'%,'+al+')';
+        ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1); ctx.stroke();
+      }
+    }
+  }
+  ctx.globalCompositeOperation='source-over';
+}
+
+// pen state
+let pen={x:cx,y:cy,has:false};
+let pointerDown=false, lastInput=-9999, t=0;
+let autoPrev=null;
+
+function feed(x,y,speed){
+  if(pen.has){
+    const w=Math.max(1.7, 4.2 - speed*0.012);
+    drawSeg(pen.x,pen.y,x,y,hue%360,w);
+  }
+  pen.x=x; pen.y=y; pen.has=true;
+}
+
+// input
+function onDown(x,y){ pointerDown=true; lastInput=t; pen.has=false; feed(x,y,0); hideHint(); }
+function onMove(x,y){ if(!pointerDown)return; lastInput=t;
+  const sp=Math.hypot(x-pen.x,y-pen.y); feed(x,y,sp); }
+function onUp(){ pointerDown=false; pen.has=false; }
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);onDown(e.clientX,e.clientY);});
+cv.addEventListener('pointermove',e=>{onMove(e.clientX,e.clientY);});
+cv.addEventListener('pointerup',onUp);
+cv.addEventListener('pointercancel',onUp);
+
+// loop
+let last=performance.now();
+function stepFrame(dt){
+  t+=dt;
+  // gentle fade so the mandala breathes
+  ctx.globalCompositeOperation='source-over';
+  ctx.fillStyle='rgba(7,5,14,0.018)'; ctx.fillRect(0,0,W,H);
+  hue+=dt*30;
+  // auto living pen when idle
+  if(AUTO && (t-lastInput)>1.4 && !pointerDown){
+    const r=R*(0.16+0.30*(0.5+0.5*Math.sin(t*0.63))+0.12*Math.sin(t*1.7+1));
+    const a=t*0.55+1.6*Math.sin(t*0.21);
+    const x=cx+Math.cos(a)*r, y=cy+Math.sin(a)*r;
+    if(!autoPrev){autoPrev=true; pen.has=false;}
+    const sp=Math.hypot(x-pen.x,y-pen.y);
+    feed(x,y,sp);
+  } else { autoPrev=false; }
+}
+function frame(now){
+  const dt=Math.min((now-last)/1000,0.05); last=now;
+  stepFrame(dt);
+  requestAnimationFrame(frame);
+}
+
+// hint
+let hintGone=false;
+function hideHint(){ if(hintGone)return; hintGone=true; document.getElementById('hint').style.opacity=0; }
+
+// controls
+const symEl=document.getElementById('sym'), symv=document.getElementById('symv');
+symEl.addEventListener('input',()=>{SYM=+symEl.value; symv.textContent=SYM;});
+document.getElementById('mirror').onclick=e=>{MIRROR=!MIRROR; e.target.classList.toggle('on',MIRROR);};
+document.getElementById('auto').onclick=e=>{AUTO=!AUTO; e.target.classList.toggle('on',AUTO); if(AUTO)lastInput=t-2;};
+document.getElementById('clear').onclick=()=>{ctx.globalCompositeOperation='source-over';ctx.fillStyle='#07050e';ctx.fillRect(0,0,W,H);pen.has=false;};
+document.getElementById('save').onclick=()=>{
+  const a=document.createElement('a'); a.download='万花镜.png'; a.href=cv.toDataURL('image/png'); a.click();
+};
+
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

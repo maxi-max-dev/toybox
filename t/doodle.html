@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>弹珠涂鸦 · Doodle</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#fbf6ec;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#4a3f35;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:1px;text-shadow:0 1px 0 rgba(255,255,255,.7)}
+  .title span{display:block;font-size:12px;opacity:.6;margin-top:2px;font-weight:600}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;
+    display:flex;gap:8px;flex-wrap:wrap;justify-content:center;max-width:96vw;
+    background:rgba(255,255,255,.75);border:1px solid rgba(150,120,90,.2);
+    padding:8px;border-radius:16px;backdrop-filter:blur(10px);
+    box-shadow:0 8px 28px rgba(150,110,70,.2)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#4a3f35;
+    border:none;background:#fff;padding:9px 13px;border-radius:11px;cursor:pointer;
+    box-shadow:0 2px 0 rgba(150,110,70,.18);transition:transform .08s}
+  .bar button:active{transform:translateY(1px);box-shadow:0 1px 0 rgba(150,110,70,.18)}
+  .bar button.on{background:linear-gradient(90deg,#4dc9ff,#4d8bff);color:#fff;box-shadow:0 2px 0 rgba(40,90,160,.3)}
+  .count{position:fixed;top:18px;right:20px;z-index:5;font-weight:800;font-size:14px;opacity:.5;pointer-events:none}
+  .hint{position:fixed;left:50%;bottom:66px;transform:translateX(-50%);z-index:4;
+    font-size:13px;font-weight:600;opacity:.55;pointer-events:none;transition:opacity .6s;white-space:nowrap;
+    text-shadow:0 1px 0 rgba(255,255,255,.6)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>弹珠涂鸦</b><span>按住拖 = 画坡道　点一下 = 掉弹珠</span></div>
+<div class="count" id="count"></div>
+<div class="hint" id="hint">✎ 画一条斜线，再点上面 ✎</div>
+<div class="bar">
+  <button id="tap" class="on">💧 水龙头</button>
+  <button id="rain">🌈 一把珠</button>
+  <button id="clearB">🧹 清珠</button>
+  <button id="clearL">🗑️ 清线</button>
+  <button id="reset">↺ 全清</button>
+</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize',resize); resize();
+
+const COLORS=['#ff6b8a','#ffb454','#ffd93d','#4fd18b','#4dc9ff','#9b7bff','#ff8fd0'];
+const G=1700, REST=0.34, FRICT=0.985, WREST=0.36, SUB=4;
+const R_MIN=8, R_MAX=15;
+
+let balls=[], segs=[], strokes=[]; // strokes = array of point arrays for smooth drawing
+let faucet=true, faucetT=0;
+let idc=0;
+
+function addBall(x,y,r){
+  r=r|| (R_MIN+Math.random()*(R_MAX-R_MIN));
+  balls.push({x,y,vx:(Math.random()-.5)*40,vy:0,r,col:COLORS[(Math.random()*COLORS.length)|0]});
+  if(balls.length>170) balls.shift();
+  count();
+}
+function count(){document.getElementById('count').textContent=balls.length+' 颗';}
+
+// ---- input ----
+let down=false, moved=false, dx0=0,dy0=0, curStroke=null, lastPt=null;
+function onDown(x,y){ down=true; moved=false; dx0=x; dy0=y; curStroke=[[x,y]]; lastPt=[x,y]; }
+function onMove(x,y){
+  if(!down)return;
+  if(Math.hypot(x-dx0,y-dy0)>6) moved=true;
+  const d=Math.hypot(x-lastPt[0],y-lastPt[1]);
+  if(d>7){
+    segs.push({x1:lastPt[0],y1:lastPt[1],x2:x,y2:y});
+    curStroke.push([x,y]);
+    lastPt=[x,y];
+    if(segs.length>1400) segs.shift();
+  }
+}
+function onUp(x,y){
+  if(down){
+    if(!moved){ addBall(dx0,dy0-4); }
+    else if(curStroke && curStroke.length>1){ strokes.push(curStroke); if(strokes.length>200)strokes.shift(); }
+    hideHint();
+  }
+  down=false; curStroke=null;
+}
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);onDown(e.clientX,e.clientY);});
+cv.addEventListener('pointermove',e=>onMove(e.clientX,e.clientY));
+cv.addEventListener('pointerup',e=>onUp(e.clientX,e.clientY));
+cv.addEventListener('pointercancel',()=>{down=false;curStroke=null;});
+
+// ---- physics ----
+function collideSeg(b,s){
+  const dx=s.x2-s.x1, dy=s.y2-s.y1;
+  const L2=dx*dx+dy*dy||1e-6;
+  let tt=((b.x-s.x1)*dx+(b.y-s.y1)*dy)/L2;
+  tt=tt<0?0:tt>1?1:tt;
+  const cxp=s.x1+dx*tt, cyp=s.y1+dy*tt;
+  let nx=b.x-cxp, ny=b.y-cyp, d=Math.hypot(nx,ny);
+  if(d<b.r){
+    if(d<1e-5){nx=0;ny=-1;d=1;}
+    nx/=d; ny/=d;
+    b.x=cxp+nx*b.r; b.y=cyp+ny*b.r;
+    const vn=b.vx*nx+b.vy*ny;
+    if(vn<0){
+      const tx=-ny, ty=nx;
+      let vt=b.vx*tx+b.vy*ty;
+      const nvn=-vn*WREST; vt*=FRICT;
+      b.vx=nx*nvn+tx*vt; b.vy=ny*nvn+ty*vt;
+    }
+  }
+}
+function step(dt){
+  dt=Math.min(dt,1/30);
+  if(faucet){ faucetT+=dt; while(faucetT>0.11){ faucetT-=0.11; addBall(W*0.5+(Math.random()-.5)*40,-10); } }
+  const h=dt/SUB;
+  for(let s=0;s<SUB;s++){
+    for(const b of balls){
+      b.vy+=G*h;
+      b.x+=b.vx*h; b.y+=b.vy*h;
+      // walls
+      if(b.x<b.r){b.x=b.r;b.vx=-b.vx*WREST;}
+      else if(b.x>W-b.r){b.x=W-b.r;b.vx=-b.vx*WREST;}
+      if(b.y>H-b.r){b.y=H-b.r;b.vy=-b.vy*WREST;b.vx*=FRICT;}
+      // segment collisions
+      for(let k=0;k<segs.length;k++) collideSeg(b,segs[k]);
+    }
+    // ball-ball
+    for(let i=0;i<balls.length;i++){
+      const a=balls[i];
+      for(let j=i+1;j<balls.length;j++){
+        const b=balls[j];
+        let dx=b.x-a.x, dy=b.y-a.y, d=Math.hypot(dx,dy), rr=a.r+b.r;
+        if(d>0 && d<rr){
+          const nx=dx/d, ny=dy/d, ov=(rr-d)*0.5;
+          a.x-=nx*ov; a.y-=ny*ov; b.x+=nx*ov; b.y+=ny*ov;
+          const rvn=(b.vx-a.vx)*nx+(b.vy-a.vy)*ny;
+          if(rvn<0){ const imp=-(1+REST)*rvn*0.5; a.vx-=nx*imp; a.vy-=ny*imp; b.vx+=nx*imp; b.vy+=ny*imp; }
+        }
+      }
+    }
+  }
+  // cull off-bottom escapees (shouldn't happen w/ floor, safety)
+  for(let i=balls.length-1;i>=0;i--) if(balls[i].y>H+200){ balls.splice(i,1); count(); }
+}
+
+// ---- render ----
+function drawInk(pts){
+  if(pts.length<2){return;}
+  ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
+  for(let i=1;i<pts.length-1;i++){ const mx=(pts[i][0]+pts[i+1][0])/2, my=(pts[i][1]+pts[i+1][1])/2; ctx.quadraticCurveTo(pts[i][0],pts[i][1],mx,my); }
+  ctx.lineTo(pts[pts.length-1][0],pts[pts.length-1][1]);
+  ctx.stroke();
+}
+function draw(){
+  ctx.fillStyle='#fbf6ec'; ctx.fillRect(0,0,W,H);
+  // dot grid
+  ctx.fillStyle='rgba(150,120,80,.10)';
+  const gap=28;
+  for(let x=gap;x<W;x+=gap) for(let y=gap;y<H;y+=gap){ ctx.beginPath();ctx.arc(x,y,1.1,0,6.28);ctx.fill(); }
+  // ink
+  ctx.strokeStyle='#40372f'; ctx.lineWidth=6; ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.shadowColor='rgba(90,60,30,.22)'; ctx.shadowBlur=5; ctx.shadowOffsetY=2;
+  for(const st of strokes) drawInk(st);
+  if(curStroke) drawInk(curStroke);
+  ctx.shadowColor='transparent'; ctx.shadowBlur=0; ctx.shadowOffsetY=0;
+  // balls
+  for(const b of balls){
+    ctx.beginPath(); ctx.arc(b.x,b.y+2,b.r*0.95,0,6.28); ctx.fillStyle='rgba(90,60,30,.14)'; ctx.fill();
+    const g=ctx.createRadialGradient(b.x-b.r*0.35,b.y-b.r*0.4,b.r*0.1,b.x,b.y,b.r);
+    g.addColorStop(0,'#ffffff'); g.addColorStop(0.25,b.col); g.addColorStop(1,shade(b.col,-28));
+    ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,6.28); ctx.fillStyle=g; ctx.fill();
+    ctx.beginPath(); ctx.arc(b.x-b.r*0.32,b.y-b.r*0.36,b.r*0.22,0,6.28); ctx.fillStyle='rgba(255,255,255,.85)'; ctx.fill();
+  }
+}
+function shade(hex,amt){
+  const n=parseInt(hex.slice(1),16); let r=(n>>16)+amt,g=((n>>8)&255)+amt,b=(n&255)+amt;
+  r=Math.max(0,Math.min(255,r));g=Math.max(0,Math.min(255,g));b=Math.max(0,Math.min(255,b));
+  return 'rgb('+r+','+g+','+b+')';
+}
+
+let last=performance.now();
+function frame(now){ const dt=(now-last)/1000; last=now; step(dt||0.016); draw(); requestAnimationFrame(frame); }
+
+// ---- controls ----
+let hintGone=false; function hideHint(){ if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0; }
+document.getElementById('tap').onclick=e=>{faucet=!faucet;e.target.classList.toggle('on',faucet);hideHint();};
+document.getElementById('rain').onclick=()=>{for(let i=0;i<24;i++) setTimeout(()=>addBall(W*(0.15+Math.random()*0.7),-10),i*40);hideHint();};
+document.getElementById('clearB').onclick=()=>{balls=[];count();};
+document.getElementById('clearL').onclick=()=>{segs=[];strokes=[];};
+document.getElementById('reset').onclick=()=>{balls=[];segs=[];strokes=[];count();};
+
+// starter ramp so it's alive on load
+function seed(){
+  const pts=[[W*0.2,H*0.35],[W*0.5,H*0.5],[W*0.78,H*0.62]];
+  for(let i=0;i<pts.length-1;i++) segs.push({x1:pts[i][0],y1:pts[i][1],x2:pts[i+1][0],y2:pts[i+1][1]});
+  strokes.push(pts);
+  const p2=[[W*0.82,H*0.72],[W*0.45,H*0.8]];
+  segs.push({x1:p2[0][0],y1:p2[0][1],x2:p2[1][0],y2:p2[1][1]}); strokes.push(p2);
+  count();
+}
+seed();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

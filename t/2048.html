@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>2048</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#faf8ef;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#6b6459;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:24px;font-weight:800;letter-spacing:1px;color:#8a7a66}
+  .title span{display:block;font-size:12px;opacity:.6;margin-top:2px;font-weight:600}
+  .bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;
+    background:rgba(255,255,255,.7);border:1px solid rgba(150,130,100,.2);padding:8px;border-radius:14px;backdrop-filter:blur(8px)}
+  .bar button{font:inherit;font-weight:700;font-size:13px;color:#6b6459;border:none;background:#bbada0;color:#fff;padding:9px 15px;border-radius:9px;cursor:pointer}
+  .bar button:active{transform:translateY(1px)}
+  .hint{position:fixed;left:50%;bottom:62px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>2048</b><span>方向键 / 手指划，合成 2048</span></div>
+<div class="hint" id="hint">⬆️⬇️⬅️➡️ 或手指划一下</div>
+<div class="bar"><button id="new">↻ 新游戏</button></div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,N=4,board=0,cell=0,gap=0,bx=0,by=0;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  board=Math.min(W*0.9, H*0.72, 520); gap=board*0.028; cell=(board-gap*(N+1))/N;
+  bx=(W-board)/2; by=(H-board)/2+8;
+}
+window.addEventListener('resize',resize); resize();
+
+const COLS={2:'#eee4da',4:'#ede0c8',8:'#f2b179',16:'#f59563',32:'#f67c5f',64:'#f65e3b',128:'#edcf72',256:'#edcc61',512:'#edc850',1024:'#edc53f',2048:'#edc22e'};
+function tcol(v){ return COLS[v]||'#3c3a32'; }
+function txtcol(v){ return v<=4?'#776e65':'#f9f6f2'; }
+
+let grid, tiles, score=0, best=0, anim=1, over=false, won=false;
+function init(){ grid=Array.from({length:N},()=>Array(N).fill(null)); tiles=[]; score=0; over=false; won=false; anim=1; addRandom(); addRandom(); }
+function empties(){ const e=[]; for(let r=0;r<N;r++)for(let c=0;c<N;c++)if(!grid[r][c])e.push([r,c]); return e; }
+function addRandom(){ const e=empties(); if(!e.length)return; const [r,c]=e[(Math.random()*e.length)|0];
+  const t={val:Math.random()<0.9?2:4,r,c,pr:r,pc:c,isNew:true,merged:false,remove:false}; grid[r][c]=t; tiles.push(t); }
+resize(); init();
+
+const DIRS={left:[0,-1],right:[0,1],up:[-1,0],down:[1,0]};
+function within(r,c){return r>=0&&r<N&&c>=0&&c<N;}
+function move(dir){
+  if(over||anim<1)return; const [dr,dc]=DIRS[dir];
+  const rows=[0,1,2,3], cols=[0,1,2,3]; if(dr>0)rows.reverse(); if(dc>0)cols.reverse();
+  for(const t of tiles){ t.pr=t.r;t.pc=t.c;t.merged=false;t.isNew=false;t.remove=false; }
+  let moved=false;
+  for(const r of rows)for(const c of cols){ const t=grid[r][c]; if(!t)continue;
+    let nr=r,nc=c; while(within(nr+dr,nc+dc)&&!grid[nr+dr][nc+dc]){nr+=dr;nc+=dc;}
+    const tr=nr+dr,tc=nc+dc;
+    if(within(tr,tc)){ const o=grid[tr][tc]; if(o&&o.val===t.val&&!o.merged){
+      grid[r][c]=null; o.val*=2; o.merged=true; score+=o.val; if(o.val===2048)won=true;
+      t.r=tr;t.c=tc;t.remove=true; moved=true; continue; } }
+    if(nr!==r||nc!==c){ grid[r][c]=null; grid[nr][nc]=t; t.r=nr;t.c=nc; moved=true; }
+  }
+  if(moved){ anim=0; addRandom(); best=Math.max(best,score); }
+}
+function movesLeft(){ if(empties().length)return true;
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){ const v=grid[r][c].val; if((within(r+1,c)&&grid[r+1][c].val===v)||(within(r,c+1)&&grid[r][c+1].val===v))return true; } return false; }
+
+const ease=x=>1-Math.pow(1-x,3);
+function cx(c){return bx+gap+c*(cell+gap);} function cy(r){return by+gap+r*(cell+gap);}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function draw(){
+  ctx.fillStyle='#faf8ef'; ctx.fillRect(0,0,W,H);
+  // HUD
+  ctx.fillStyle='#8a7a66'; ctx.font='800 20px -apple-system,sans-serif'; ctx.textAlign='right'; ctx.textBaseline='alphabetic';
+  ctx.fillText('分 '+score+'   最佳 '+best, bx+board, by-14); ctx.textAlign='left';
+  // board bg
+  rr(bx,by,board,board,10); ctx.fillStyle='#bbada0'; ctx.fill();
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){ rr(cx(c),cy(r),cell,cell,7); ctx.fillStyle='rgba(238,228,218,0.35)'; ctx.fill(); }
+  // tiles
+  for(const t of tiles){
+    const ex=cx(t.pc)+(cx(t.c)-cx(t.pc))*ease(anim), ey=cy(t.pr)+(cy(t.r)-cy(t.pr))*ease(anim);
+    let sc=1; if(t.isNew) sc=Math.min(1,anim*1.4); if(t.merged) sc=1+0.16*Math.sin(Math.min(1,anim)*Math.PI);
+    const w=cell*sc, off=(cell-w)/2;
+    ctx.save();
+    rr(ex+off,ey+off,w,w,7); ctx.fillStyle=tcol(t.val); ctx.fill();
+    ctx.fillStyle=txtcol(t.val); ctx.textAlign='center'; ctx.textBaseline='middle';
+    const fs=t.val<100?cell*0.42:t.val<1000?cell*0.34:cell*0.27;
+    ctx.font='800 '+fs+'px -apple-system,sans-serif';
+    ctx.fillText(t.val, ex+cell/2, ey+cell/2+1);
+    ctx.restore();
+  }
+  ctx.textAlign='left';ctx.textBaseline='alphabetic';
+  if(over||won){ ctx.fillStyle='rgba(250,248,239,0.78)'; rr(bx,by,board,board,10); ctx.fill();
+    ctx.fillStyle=won?'#edc22e':'#8a7a66'; ctx.textAlign='center'; ctx.font='800 40px -apple-system,sans-serif';
+    ctx.fillText(won?'拼出 2048！🎉':'没有空位了', W/2, by+board*0.42);
+    ctx.fillStyle='#6b6459'; ctx.font='700 18px -apple-system,sans-serif'; ctx.fillText('得分 '+score+'   点新游戏再来', W/2, by+board*0.42+40); ctx.textAlign='left'; }
+}
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.05); last=now;
+  if(anim<1){ anim=Math.min(1,anim+dt/0.11); if(anim>=1){ tiles=tiles.filter(t=>!t.remove); for(const t of tiles){t.merged=false;t.isNew=false;} if(!movesLeft())over=true; } }
+  draw(); requestAnimationFrame(frame); }
+
+// input
+addEventListener('keydown',e=>{ const m={ArrowLeft:'left',ArrowRight:'right',ArrowUp:'up',ArrowDown:'down',a:'left',d:'right',w:'up',s:'down'}[e.key]; if(m){e.preventDefault();move(m);hideHint();} });
+let sx=0,sy=0,sd=false;
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);sd=true;sx=e.clientX;sy=e.clientY;});
+cv.addEventListener('pointerup',e=>{ if(!sd)return;sd=false; const dx=e.clientX-sx,dy=e.clientY-sy; if(Math.hypot(dx,dy)<24)return;
+  if(Math.abs(dx)>Math.abs(dy))move(dx>0?'right':'left'); else move(dy>0?'down':'up'); hideHint(); });
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+document.getElementById('new').onclick=()=>init();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

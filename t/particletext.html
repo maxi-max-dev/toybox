@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>粒子字 · ParticleText</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#05060e;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#dfe4ff;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:14px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:18px;font-weight:800;letter-spacing:2px}
+  .title span{display:block;font-size:12px;opacity:.55;margin-top:2px;font-weight:600}
+  .box{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;align-items:center;
+    background:rgba(16,18,38,.55);border:1px solid rgba(140,150,255,.22);padding:8px;border-radius:14px;backdrop-filter:blur(10px)}
+  .box input{font:inherit;font-weight:700;font-size:15px;color:#fff;background:rgba(255,255,255,.06);border:1px solid rgba(150,160,255,.25);
+    border-radius:9px;padding:8px 12px;width:min(52vw,240px);outline:none}
+  .box input::placeholder{color:rgba(200,210,255,.4)}
+  .box button{font:inherit;font-weight:700;font-size:13px;color:#0a1030;border:none;background:linear-gradient(90deg,#7aa8ff,#c07bff);padding:9px 12px;border-radius:9px;cursor:pointer}
+  .hint{position:fixed;left:50%;bottom:70px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.55;pointer-events:none;transition:opacity .6s;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>粒子字</b><span>打个字，看粒子拼出来；划一划打散它</span></div>
+<div class="hint" id="hint">✦ 手指划过字，把粒子打散 ✦</div>
+<div class="box"><input id="txt" value="你好呀" maxlength="12" placeholder="打几个字…"><button id="go">变</button></div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,oc,octx;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  oc=document.createElement('canvas'); oc.width=W; oc.height=H; octx=oc.getContext('2d');
+  if(parts.length) build(document.getElementById('txt').value);
+}
+window.addEventListener('resize',()=>{resize();});
+
+let parts=[], t=0;
+function sampleTargets(text){
+  octx.clearRect(0,0,W,H);
+  let fs=Math.min(H*0.5, 300); octx.font='800 '+fs+'px "PingFang SC",-apple-system,sans-serif';
+  const w=octx.measureText(text).width||1; const scale=Math.min(1,(W*0.84)/w); fs=fs*scale;
+  octx.font='800 '+fs+'px "PingFang SC",-apple-system,sans-serif';
+  octx.fillStyle='#fff'; octx.textAlign='center'; octx.textBaseline='middle';
+  octx.fillText(text, W/2, H*0.44);
+  const img=octx.getImageData(0,0,W,H).data; const tg=[]; const step=4;
+  for(let y=0;y<H;y+=step)for(let x=0;x<W;x+=step){ if(img[(y*W+x)*4+3]>128) tg.push([x,y]); }
+  // subsample to cap
+  const MAX=2800; if(tg.length>MAX){ const out=[]; const st=tg.length/MAX; for(let i=0;i<MAX;i++)out.push(tg[(i*st)|0]); return out; }
+  return tg;
+}
+function build(text){
+  const tg=sampleTargets(text.trim()||' ');
+  const n=tg.length;
+  const old=parts; parts=[];
+  for(let i=0;i<n;i++){ const [hx,hy]=tg[i]; const p=old[i]||{x:W/2+(Math.random()-.5)*W,y:H/2+(Math.random()-.5)*H,vx:0,vy:0};
+    parts.push({x:p.x,y:p.y,vx:p.vx,vy:p.vy,hx,hy,hue:(hx/W*300+hy/H*60)|0}); }
+}
+resize(); build('你好呀');
+
+let mouse={x:-999,y:-999,down:false};
+function step(dt){
+  for(const p of parts){
+    let ax=(p.hx-p.x)*22, ay=(p.hy-p.y)*22;
+    ax-=p.vx*7; ay-=p.vy*7;
+    const dx=p.x-mouse.x, dy=p.y-mouse.y, d2=dx*dx+dy*dy;
+    if(mouse.down && d2<120*120){ const d=Math.sqrt(d2)+0.01; const f=(1-d/120)*2600; ax+=dx/d*f; ay+=dy/d*f; }
+    p.vx+=ax*dt; p.vy+=ay*dt; p.x+=p.vx*dt; p.y+=p.vy*dt;
+  }
+}
+function draw(){
+  ctx.fillStyle='rgba(5,6,14,0.28)'; ctx.fillRect(0,0,W,H);
+  ctx.globalCompositeOperation='lighter';
+  for(const p of parts){ const sp=Math.min(1,(Math.abs(p.vx)+Math.abs(p.vy))*0.01);
+    const h=(p.hue+t*20)%360; ctx.fillStyle='hsla('+h+',95%,'+(62+sp*20)+'%,0.95)';
+    ctx.beginPath();ctx.arc(p.x,p.y,1.7,0,6.28);ctx.fill(); }
+  ctx.globalCompositeOperation='source-over';
+}
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.04); last=now; t+=dt; step(dt); draw(); requestAnimationFrame(frame); }
+
+// input
+function setMouse(x,y,down){ mouse.x=x;mouse.y=y; if(down!==undefined)mouse.down=down; }
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);setMouse(e.clientX,e.clientY,true);hideHint();});
+cv.addEventListener('pointermove',e=>setMouse(e.clientX,e.clientY));
+cv.addEventListener('pointerup',()=>{mouse.down=false;mouse.x=-999;mouse.y=-999;});
+cv.addEventListener('pointercancel',()=>{mouse.down=false;});
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+const txt=document.getElementById('txt');
+function apply(){ build(txt.value); }
+document.getElementById('go').onclick=apply;
+txt.addEventListener('keydown',e=>{ if(e.key==='Enter'){txt.blur();apply();} });
+txt.addEventListener('input',()=>{ if(txt.value.length<=12) apply(); });
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

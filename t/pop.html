@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>戳泡泡 · Pop</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#eaf0f7;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#4a5568;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:14px;left:18px;z-index:5;pointer-events:none}
+  .title b{font-size:19px;font-weight:800;letter-spacing:1px;text-shadow:0 1px 0 rgba(255,255,255,.7)}
+  .title span{display:block;font-size:12px;opacity:.6;margin-top:2px;font-weight:600}
+  .hud{position:fixed;top:16px;right:20px;z-index:5;text-align:right;pointer-events:none}
+  .hud b{font-size:16px;font-weight:800;color:#5b6b82}
+  .hud .barwrap{width:130px;height:9px;background:rgba(90,110,130,.18);border-radius:5px;margin-top:5px;overflow:hidden}
+  .hud .bar{height:100%;width:0;background:linear-gradient(90deg,#59d0a8,#4db6ff);border-radius:5px;transition:width .2s}
+  .bar2{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6;display:flex;gap:8px;
+    background:rgba(255,255,255,.8);border:1px solid rgba(120,140,160,.2);padding:8px;border-radius:15px;backdrop-filter:blur(10px);box-shadow:0 8px 24px rgba(90,110,140,.18)}
+  .bar2 button{font:inherit;font-weight:700;font-size:14px;color:#4a5568;border:none;background:#fff;
+    padding:9px 16px;border-radius:11px;cursor:pointer;box-shadow:0 2px 0 rgba(90,110,140,.16)}
+  .bar2 button:active{transform:translateY(1px)}
+  .hint{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;
+    opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.6)}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>戳泡泡</b><span>按住划过去，一串啵啵啵</span></div>
+<div class="hud"><b id="cnt">0 / 0</b><div class="barwrap"><div class="bar" id="bar"></div></div></div>
+<div class="hint" id="hint">👆 戳一下泡泡</div>
+<div class="bar2"><button id="reset">🔄 换一张新的</button></div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,cols=0,rows=0,cell=0,ox=0,oy=0,bubbles=[],confetti=[],t=0,popped=0;
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  build();
+}
+window.addEventListener('resize',resize);
+function build(){
+  cell=Math.max(40,Math.min(64,Math.floor(W/16)));
+  const top=88, bot=H-78;
+  cols=Math.floor((W-24)/cell); rows=Math.floor((bot-top)/cell);
+  cols=Math.max(4,cols); rows=Math.max(4,rows);
+  ox=(W-cols*cell)/2; oy=top+((bot-top)-rows*cell)/2;
+  bubbles=[]; popped=0;
+  for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+    bubbles.push({c,r,x:ox+c*cell+cell/2,y:oy+r*cell+cell/2,state:'up',upT:-1,popT:-1,
+      hue:((c+r)/(cols+rows)*300)|0, freq:280+((rows-r)/rows)*380});
+  }
+  updateHUD();
+}
+resize();
+
+// ---- audio ----
+let actx=null,master=null;
+function initAudio(){ if(actx)return; try{actx=new(window.AudioContext||window.webkitAudioContext)();master=actx.createGain();master.gain.value=0.5;master.connect(actx.destination);}catch(e){} }
+function pop(freq){ if(!actx)return; const t0=actx.currentTime;
+  const o=actx.createOscillator();o.type='triangle';o.frequency.setValueAtTime(freq*1.7,t0);o.frequency.exponentialRampToValueAtTime(freq*0.7,t0+0.07);
+  const g=actx.createGain();g.gain.setValueAtTime(0.0001,t0);g.gain.exponentialRampToValueAtTime(0.5,t0+0.006);g.gain.exponentialRampToValueAtTime(0.0001,t0+0.11);
+  o.connect(g);g.connect(master);o.start(t0);o.stop(t0+0.13);
+  // tiny click
+  const o2=actx.createOscillator();o2.type='square';o2.frequency.value=freq*2.4;const g2=actx.createGain();g2.gain.setValueAtTime(0.16,t0);g2.gain.exponentialRampToValueAtTime(0.0001,t0+0.03);o2.connect(g2);g2.connect(master);o2.start(t0);o2.stop(t0+0.04);}
+
+function popBubble(b){
+  if(b.state!=='up')return; b.state='popped'; b.popT=t; popped++;
+  pop(b.freq);
+  for(let i=0;i<6;i++){const a=Math.random()*6.28,s=40+Math.random()*70;confetti.push({x:b.x,y:b.y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-30,life:0.5,hue:b.hue});}
+  updateHUD();
+  if(popped===bubbles.length) celebrate();
+}
+function celebrate(){ for(let i=0;i<160;i++){confetti.push({x:W/2,y:H*0.4,vx:(Math.random()-.5)*500,vy:-Math.random()*500-80,life:1.6,hue:(Math.random()*360)|0,big:true});} }
+function updateHUD(){ document.getElementById('cnt').textContent=popped+' / '+bubbles.length;
+  document.getElementById('bar').style.width=(bubbles.length?popped/bubbles.length*100:0)+'%'; }
+
+// ---- input ----
+let down=false;
+function hit(x,y){ const c=Math.floor((x-ox)/cell), r=Math.floor((y-oy)/cell); if(c<0||c>=cols||r<0||r>=rows)return null;
+  const b=bubbles[r*cols+c]; if(!b)return null; const dx=x-b.x,dy=y-b.y; if(dx*dx+dy*dy<=(cell*0.44)**2)return b; return null; }
+function at(x,y){ initAudio(); if(actx&&actx.state==='suspended')actx.resume(); const b=hit(x,y); if(b)popBubble(b); hideHint(); }
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);down=true;at(e.clientX,e.clientY);});
+cv.addEventListener('pointermove',e=>{if(down)at(e.clientX,e.clientY);});
+cv.addEventListener('pointerup',()=>down=false);
+cv.addEventListener('pointercancel',()=>down=false);
+
+// ---- render ----
+const ease=x=>1-Math.pow(1-x,3);
+function scaleOf(b){
+  if(b.state==='up'){ if(b.upT<0)return 1; const a=(t-b.upT)/0.3; if(a<=0)return 0; if(a>=1)return 1; const e=ease(a); return e*1.06-0.06*Math.max(0,1-a*2); }
+  const a=(t-b.popT)/0.14; return a>=1?0:1-ease(a);
+}
+function draw(){
+  ctx.fillStyle='#eaf0f7'; ctx.fillRect(0,0,W,H);
+  const R=cell*0.42;
+  for(const b of bubbles){
+    // dimple base (always)
+    ctx.fillStyle='hsla('+b.hue+',30%,80%,0.5)';
+    ctx.beginPath();ctx.arc(b.x,b.y,R*0.96,0,6.28);ctx.fill();
+    // inner ring for popped concave look
+    if(b.state==='popped'){
+      const gg=ctx.createRadialGradient(b.x,b.y+R*0.3,R*0.1,b.x,b.y,R);
+      gg.addColorStop(0,'hsla('+b.hue+',35%,72%,0.55)');gg.addColorStop(1,'hsla('+b.hue+',30%,88%,0.15)');
+      ctx.fillStyle=gg;ctx.beginPath();ctx.arc(b.x,b.y,R*0.9,0,6.28);ctx.fill();
+    }
+    const s=scaleOf(b);
+    if(s>0.03){
+      const rr=R*s;
+      const g=ctx.createRadialGradient(b.x-rr*0.35,b.y-rr*0.4,rr*0.15,b.x,b.y,rr);
+      g.addColorStop(0,'hsla('+b.hue+',85%,92%,0.98)');
+      g.addColorStop(0.5,'hsla('+b.hue+',75%,74%,0.92)');
+      g.addColorStop(1,'hsla('+b.hue+',65%,60%,0.9)');
+      ctx.fillStyle=g;ctx.beginPath();ctx.arc(b.x,b.y,rr,0,6.28);ctx.fill();
+      // rim
+      ctx.strokeStyle='hsla('+b.hue+',60%,55%,0.35)';ctx.lineWidth=1.5;ctx.stroke();
+      // highlight
+      ctx.fillStyle='rgba(255,255,255,0.6)';ctx.beginPath();ctx.ellipse(b.x-rr*0.32,b.y-rr*0.36,rr*0.28,rr*0.18,-0.5,0,6.28);ctx.fill();
+    }
+  }
+  for(const p of confetti){ const a=Math.max(0,p.life/(p.big?1.6:0.5)); ctx.globalAlpha=a; ctx.fillStyle='hsl('+p.hue+',90%,60%)';
+    const sz=p.big?5:3; ctx.fillRect(p.x-sz/2,p.y-sz/2,sz,sz); }
+  ctx.globalAlpha=1;
+}
+function update(dt){ for(let i=confetti.length-1;i>=0;i--){const p=confetti[i];p.life-=dt;p.vy+=(p.big?520:300)*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;if(p.life<=0)confetti.splice(i,1);} }
+
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.05); last=now; t+=dt; update(dt); draw(); requestAnimationFrame(frame); }
+
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+document.getElementById('reset').onclick=()=>{
+  const cx=W/2,cy=(oy+rows*cell/2);
+  for(const b of bubbles){ b.state='up'; b.popT=-1; const d=Math.hypot(b.x-cx,b.y-cy); b.upT=t+d/700; }
+  popped=0; updateHUD();
+};
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

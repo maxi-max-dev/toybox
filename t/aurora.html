@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>极光 · Aurora</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:#03030c;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    color:#cfe0ff;touch-action:none;user-select:none}
+  #cv{display:block;position:fixed;inset:0}
+  .title{position:fixed;top:15px;left:18px;z-index:5;pointer-events:none;mix-blend-mode:screen}
+  .title b{font-size:19px;font-weight:800;letter-spacing:4px}
+  .title span{display:block;font-size:12px;opacity:.7;margin-top:3px;font-weight:600;letter-spacing:1px}
+  .hint{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:4;font-size:13px;font-weight:600;opacity:.6;pointer-events:none;transition:opacity .6s;white-space:nowrap;mix-blend-mode:screen}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="title"><b>极光</b><span>手指划过夜空，搅动极光</span></div>
+<div class="hint" id="hint">✦ 在天空里划一划 ✦</div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,dpr=1,stars=[],mtn=[],pulses=[];
+function resize(){
+  dpr=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth||document.documentElement.clientWidth||800;
+  H=window.innerHeight||document.documentElement.clientHeight||600;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  stars=[]; for(let i=0;i<110;i++) stars.push({x:Math.random()*W,y:Math.random()*H*0.72,r:Math.random()*1.2+0.3,p:Math.random()*6.28});
+  mtn=[]; let x=0,y=H*0.78; while(x<=W+40){ mtn.push([x,y]); x+=30+Math.random()*50; y=H*0.72+Math.random()*H*0.16; }
+}
+window.addEventListener('resize',resize); resize();
+
+const LAYERS=[
+  {baseY:0.30,glow:0.46,col:'70,230,150',tip:'110,90,255',a1:30,a2:14,a3:9,ph:0.0,shs:1.1,w1:0.006,w2:0.013,w3:0.021},
+  {baseY:0.24,glow:0.52,col:'60,210,190',tip:'80,130,255',a1:38,a2:11,a3:13,ph:2.1,shs:0.8,w1:0.005,w2:0.011,w3:0.018},
+  {baseY:0.40,glow:0.30,col:'185,120,255',tip:'255,120,220',a1:22,a2:18,a3:7,ph:4.2,shs:1.5,w1:0.007,w2:0.015,w3:0.024}
+];
+let t=0;
+function curtain(L){
+  const baseY=L.baseY*H, glow=L.glow*H, S=4;
+  for(let x=0;x<W;x+=S){
+    const top=baseY + L.a1*Math.sin(x*L.w1+t*0.6+L.ph) + L.a2*Math.sin(x*L.w2 - t*0.9) + L.a3*Math.sin(x*L.w3 + t*1.4);
+    let sh=0.30+0.55*(0.5+0.5*Math.sin(x*0.05+t*L.shs))+0.25*(0.5+0.5*Math.sin(x*0.11-t*1.7));
+    for(const p of pulses){ const dx=x-p.x; sh+=Math.exp(-dx*dx/7200)*p.life*1.4; }
+    if(sh>1.4)sh=1.4;
+    const g=ctx.createLinearGradient(0,top-24,0,top+glow);
+    g.addColorStop(0,'rgba('+L.tip+',0)');
+    g.addColorStop(0.05,'rgba('+L.tip+','+(0.45*sh)+')');
+    g.addColorStop(0.16,'rgba('+L.col+','+(0.7*sh)+')');
+    g.addColorStop(1,'rgba('+L.col+',0)');
+    ctx.fillStyle=g; ctx.fillRect(x,top-24,S+1,glow+24);
+  }
+}
+function draw(){
+  const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#04061a'); g.addColorStop(0.55,'#060a20'); g.addColorStop(1,'#04101a');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // stars
+  for(const s of stars){ const tw=0.5+0.5*Math.sin(t*2.2+s.p); ctx.fillStyle='rgba(220,230,255,'+(0.25+tw*0.6)+')'; ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,6.28);ctx.fill(); }
+  // aurora
+  ctx.globalCompositeOperation='lighter';
+  for(const L of LAYERS) curtain(L);
+  ctx.globalCompositeOperation='source-over';
+  // mountains
+  ctx.fillStyle='#02060c';
+  ctx.beginPath(); ctx.moveTo(0,H); ctx.lineTo(0,mtn[0][1]);
+  for(const p of mtn) ctx.lineTo(p[0],p[1]);
+  ctx.lineTo(W,H); ctx.closePath(); ctx.fill();
+  // snow tint on peaks
+  ctx.strokeStyle='rgba(120,160,200,.15)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(mtn[0][0],mtn[0][1]);for(const p of mtn)ctx.lineTo(p[0],p[1]);ctx.stroke();
+}
+function step(dt){ for(let i=pulses.length-1;i>=0;i--){pulses[i].life-=dt*0.9;if(pulses[i].life<=0)pulses.splice(i,1);} }
+let last=performance.now();
+function frame(now){ const dt=Math.min((now-last)/1000,0.04); last=now; t+=dt; step(dt); draw(); requestAnimationFrame(frame); }
+
+let down=false;
+function stir(x){ pulses.push({x,life:1}); if(pulses.length>40)pulses.shift(); }
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);down=true;stir(e.clientX);hideHint();});
+cv.addEventListener('pointermove',e=>{if(down)stir(e.clientX);});
+cv.addEventListener('pointerup',()=>down=false);
+cv.addEventListener('pointercancel',()=>down=false);
+let hintGone=false; function hideHint(){if(hintGone)return;hintGone=true;document.getElementById('hint').style.opacity=0;}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
